@@ -1,148 +1,185 @@
-import React from 'react'
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend
+} from "recharts";
 
-const DEMO_URL = import.meta.env.VITE_DEMO_URL || 'http://localhost:5173'
+const API_BASE = import.meta.env.VITE_API_BASE; // https://railsight-api.onrender.com
 
-// SVGs inline (sem arquivos externos)
-const Logo = () => (
-  <span className="logo" aria-hidden="true"></span>
-)
+export default function App() {
+  // Controles de janela
+  const [kmIni, setKmIni] = useState(333800);
+  const [windowM, setWindowM] = useState(300);
+  const [stepM] = useState(1);
 
-const PartnersBar = () => (
-  <section aria-labelledby="trust" style={{maxWidth:"1120px", margin:"12px auto", padding:"0 8px"}}>
-    <div className="card" role="region" aria-label="Prova social">
-      <h3 id="trust" style={{marginBottom:8}}>Confiado por líderes do setor</h3>
-      <div style={{display:"flex",gap:24,alignItems:"center",flexWrap:"wrap"}}>
-        <img alt="RailCorp" height="28" loading="lazy"
-             src={'data:image/svg+xml;utf8,'+encodeURIComponent(`<svg width="160" height="36" xmlns="http://www.w3.org/2000/svg"><rect rx="6" width="160" height="36" fill="#0f172a"/><text x="80" y="23" text-anchor="middle" font-family="Inter,Arial" font-size="16" fill="#60a5fa">RailCorp</text></svg>`)} />
-        <img alt="Ferrovia Brasil" height="28" loading="lazy"
-             src={'data:image/svg+xml;utf8,'+encodeURIComponent(`<svg width="180" height="36" xmlns="http://www.w3.org/2000/svg"><rect rx="6" width="180" height="36" fill="#0f172a"/><text x="90" y="23" text-anchor="middle" font-family="Inter,Arial" font-size="16" fill="#93c5fd">Ferrovia Brasil</text></svg>`)} />
-        <img alt="InovaTrilhos" height="28" loading="lazy"
-             src={'data:image/svg+xml;utf8,'+encodeURIComponent(`<svg width="180" height="36" xmlns="http://www.w3.org/2000/svg"><rect rx="6" width="180" height="36" fill="#0f172a"/><text x="90" y="23" text-anchor="middle" font-family="Inter,Arial" font-size="16" fill="#60a5fa">InovaTrilhos</text></svg>`)} />
-      </div>
-    </div>
-  </section>
-)
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const [payload, setPayload] = useState(null);
 
-const DemoImage = () => (
-  <img
-    alt="Exemplo de gráficos do RailSight"
-    loading="lazy"
-    width="100%"
-    height="auto"
-    style={{borderRadius:12, border:"1px solid #e5e7eb"}}
-    src={'data:image/svg+xml;utf8,'+encodeURIComponent(`
-      <svg width="1200" height="600" xmlns="http://www.w3.org/2000/svg">
-        <rect width="1200" height="600" fill="#ffffff"/>
-        <g transform="translate(60,40)">
-          <rect x="0" y="0" width="1080" height="160" fill="#fbfdff" stroke="#e5e7eb"/>
-          <text x="12" y="24" font-family="Inter,Arial" font-size="18" fill="#374151">Curvatura (°)</text>
-          <line x1="20" y1="120" x2="1060" y2="120" stroke="#c7d2fe" stroke-width="2"/>
-          <line x1="20" y1="60" x2="1060" y2="60" stroke="#e5e7eb" stroke-width="1"/>
-          <polyline fill="none" stroke="#2563eb" stroke-width="3"
-            points="20,90 70,70 120,100 170,60 220,110 270,85 320,60 370,95 420,60 470,105 520,80 570,60 620,90 670,60 720,100 770,65 820,110 870,85 920,60 970,95 1020,70"/>
-        </g>
-        <g transform="translate(60,240)">
-          <rect x="0" y="0" width="1080" height="160" fill="#fbfdff" stroke="#e5e7eb"/>
-          <text x="12" y="24" font-family="Inter,Arial" font-size="18" fill="#374151">Superelevação / Crosslevel (mm)</text>
-          <line x1="20" y1="120" x2="1060" y2="120" stroke="#c7d2fe" stroke-width="2"/>
-          <line x1="20" y1="60" x2="1060" y2="60" stroke="#e5e7eb" stroke-width="1"/>
-          <polyline fill="none" stroke="#16a34a" stroke-width="3"
-            points="20,80 70,90 120,70 170,100 220,80 270,110 320,70 370,95 420,85 470,65 520,105 570,75 620,95 670,70 720,110 770,80 820,95 870,70 920,100 970,85 1020,90"/>
-        </g>
-        <g transform="translate(60,440)">
-          <rect x="0" y="0" width="1080" height="160" fill="#fbfdff" stroke="#e5e7eb"/>
-          <text x="12" y="24" font-family="Inter,Arial" font-size="18" fill="#374151">Bitola / Gage (mm)</text>
-          <line x1="20" y1="120" x2="1060" y2="120" stroke="#c7d2fe" stroke-width="2"/>
-          <line x1="20" y1="60" x2="1060" y2="60" stroke="#e5e7eb" stroke-width="1"/>
-          <polyline fill="none" stroke="#db2777" stroke-width="3"
-            points="20,100 70,95 120,105 170,90 220,110 270,100 320,92 370,108 420,96 470,104 520,98 570,102 620,95 670,105 720,97 770,103 820,96 870,104 920,98 970,101 1020,99"/>
-        </g>
-        <rect x="220" y="560" width="760" height="28" fill="none" stroke="#9ca3af"/>
-        <text x="80" y="592" font-family="Inter,Arial" font-size="16" fill="#4b5563">
-          Janela 200–500 m • Andar ±100 m • Referência km 333+800 → 334+100
-        </text>
-      </svg>
-    `)}
-  />
-)
+  // Busca dados
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoading(true);
+        setErr("");
+        const url = `${API_BASE}/segment?km_ini=${kmIni}&window_m=${windowM}&step_m=${stepM}`;
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const json = await r.json();
+        setPayload(json);
+      } catch (e) {
+        setErr(`Falha ao buscar API: ${e.message}`);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [kmIni, windowM, stepM]);
 
-export default function App(){
+  // Monta os pontos alinhados no eixo X (metros relativos à janela)
+  const points = useMemo(() => {
+    if (!payload?.series) return [];
+    const step = payload?.step_m ?? 1;
+    const curv = payload.series.curvature || [];
+    const cross = payload.series.crosslevel || [];
+    const gauge = payload.series.gauge || [];
+    const maxLen = Math.max(curv.length, cross.length, gauge.length);
+
+    const arr = [];
+    for (let i = 0; i < maxLen; i++) {
+      arr.push({
+        x_m: i * step,
+        curvature: curv[i] ?? null,
+        crosslevel: cross[i] ?? null,
+        gauge: gauge[i] ?? null,
+      });
+    }
+    return arr;
+  }, [payload]);
+
+  // Navegação
+  const prev100 = () => setKmIni(kmIni - 100);
+  const next100 = () => setKmIni(kmIni + 100);
+
+  // Exportar CSV da janela atual
+  const exportCSV = () => {
+    const rows = [["x_m", "curvature_deg", "crosslevel_mm", "gauge_mm"]];
+    points.forEach(p => rows.push([p.x_m, p.curvature, p.crosslevel, p.gauge]));
+    const csv = rows.map(r => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const kmRef = payload?.km_ini ?? kmIni;
+    a.download = `railsight_segment_km${kmRef}_win${windowM}_step${stepM}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <>
-      <header className="header">
-        <div className="brand">
-          <Logo />
-          <span>Data Tech RailSight</span>
-        </div>
-        <nav className="menu" role="navigation" aria-label="Principal">
-          <a href="#solucao">Solução</a>
-          <a href="#beneficios">Benefícios</a>
-          <a href="#contato">Contato</a>
-        </nav>
+    <main style={{ padding: 16, maxWidth: 1120, margin: "0 auto", fontFamily: "Inter, system-ui, Arial" }}>
+      <header style={{ marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>RailSight – Janela de Via</h1>
+        <p style={{ color: "#6b7280", marginTop: 6 }}>
+          Fonte: <code>{API_BASE}/segment</code> — janela <strong>{windowM} m</strong>, step <strong>{stepM} m</strong>.{" "}
+          Referência (km real): <strong>{payload?.km_ini ?? kmIni}</strong>. Eixo X em <strong>metros relativos</strong>.
+        </p>
       </header>
 
-      <main>
-        <section className="hero" aria-labelledby="hero-title">
-          <div className="hero-card">
-            <h1 id="hero-title">RailSight – Inteligência em Monitoramento Ferroviário</h1>
-            <p>Reduza falhas, aumente a segurança e otimize custos em qualquer operação – <b>carga ou passageiros</b>.</p>
-            <div className="cta">
-              <a className="btn" href={DEMO_URL} target="_blank" rel="noreferrer">▶ Entrar na Demo</a>
-              <a className="btn secondary" href="https://wa.me/5532991413852"
-                 target="_blank" rel="noreferrer" aria-label="Agendar conversa no WhatsApp">
-                 Agendar no WhatsApp
-              </a>
-              <a className="btn secondary" href="#solucao">Saiba mais</a>
-            </div>
-          </div>
+      {/* Controles */}
+      <section style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+        <button onClick={prev100} style={btn}>◀︎ −100 m</button>
+        <button onClick={next100} style={btn}>+100 m ▶︎</button>
 
-          <div className="railcard card" aria-label="Resumo do que você verá">
-            <h3>O que você vai ver</h3>
-            <p>Painéis interativos: Curvatura, Superelevação, Bitola, Warp/Twist, Alinhamentos/Perfis e Velocidade — com navegação por janela (200–500 m) e referência de km.</p>
-            <div className="rail" aria-hidden="true">
-              <i></i><i></i><i></i>
-            </div>
-          </div>
-        </section>
+        <span style={{ marginLeft: 12, color: "#374151" }}>Janela:</span>
+        {[200, 300, 500].map(w => (
+          <button
+            key={w}
+            onClick={() => setWindowM(w)}
+            style={{ ...btn, ...(windowM === w ? btnPrimary : {}) }}
+            aria-pressed={windowM === w}
+          >
+            {w} m
+          </button>
+        ))}
 
-        <PartnersBar />
+        <span style={{ marginLeft: 12, color: "#374151" }}>
+          KM inicial (ref): <strong>{kmIni}</strong>
+        </span>
 
-        <section id="solucao" className="points">
-          <div className="card">
-            <h3>Solução</h3>
-            <p>Transformamos dados de via em decisões: gráficos técnicos, janelas curtas e leitura intuitiva para priorizar manutenção.</p>
-          </div>
-          <div className="card">
-            <h3>Tecnologia</h3>
-            <p>Frontend moderno (PWA), API escalável e banco otimizado para milhões de medições.</p>
-          </div>
-          <div className="card">
-            <h3>Aplicação Geral</h3>
-            <p>Serve a ferrovias de <b>carga</b> e de <b>passageiros</b>; o core é a geometria da via, a mensagem adapta ao seu negócio.</p>
-          </div>
-        </section>
+        <div style={{ flex: 1 }} />
+        <button onClick={exportCSV} style={{ ...btn, ...btnPrimary }}>Exportar CSV</button>
+        <button onClick={() => window.print()} style={btn}>Salvar em PDF (imprimir)</button>
+      </section>
 
-        <section id="beneficios" style={{maxWidth:'1120px',margin:'16px auto',padding:'0 8px'}}>
-          <div className="card">
-            <h3>Benefícios</h3>
-            <p>✔ Segurança operacional • ✔ Disponibilidade da via • ✔ Redução de custos • ✔ Acesso web e celular • ✔ Escalabilidade e integração</p>
-          </div>
-        </section>
+      {err && <p style={{ color: "#e11d48" }}>{err}</p>}
+      {loading && <p>Carregando…</p>}
 
-        <section aria-labelledby="demo" style={{maxWidth:"1120px", margin:"16px auto", padding:"0 8px"}}>
-          <div className="card">
-            <h3 id="demo" style={{marginBottom:8}}>Veja na prática</h3>
-            <p style={{marginTop:0, color:"#6b7280"}}>
-              Curvatura, Superelevação e Bitola em janelas de 200–500 m, com referência de km e navegação por ±100 m.
-            </p>
-            <DemoImage />
-          </div>
-        </section>
-      </main>
+      {/* Gráfico 1: Curvatura */}
+      <ChartCard title="Curvatura (°)" subtitle="0° = tangente; picos formam a curva (quebra-molas)">
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={points} margin={{ top: 10, right: 12, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="4 4" />
+            <XAxis dataKey="x_m" tickFormatter={(v)=>`${v}`} label={{ value: "Distância na janela (m)", position: "insideBottom", offset: -2 }}/>
+            <YAxis label={{ value: "°", angle: -90, position: "insideLeft" }}/>
+            <Tooltip labelFormatter={(l)=>`${l} m`} formatter={(v)=>[v,"Curvatura (°)"]}/>
+            <Legend />
+            <Line type="monotone" dataKey="curvature" name="Curvatura (°)" strokeWidth={2} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </ChartCard>
 
-      <footer id="contato" className="footer">
-        RailSight é uma solução da Data Tech – Soluções em I.A. • contato@datatech.com • WhatsApp: (32) 99141-3852
-      </footer>
-    </>
-  )
+      {/* Gráfico 2: Crosslevel (super-elevação) */}
+      <ChartCard title="Crosslevel (mm)" subtitle="Diferença de nível entre trilhos (super-elevação)">
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={points} margin={{ top: 10, right: 12, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="4 4" />
+            <XAxis dataKey="x_m" tickFormatter={(v)=>`${v}`} />
+            <YAxis label={{ value: "mm", angle: -90, position: "insideLeft" }}/>
+            <Tooltip labelFormatter={(l)=>`${l} m`} formatter={(v)=>[v,"Crosslevel (mm)"]}/>
+            <Legend />
+            <Line type="monotone" dataKey="crosslevel" name="Crosslevel (mm)" strokeWidth={2} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </ChartCard>
+
+      {/* Gráfico 3: Bitola */}
+      <ChartCard title="Bitola (mm)" subtitle="Variação de bitola dentro da janela">
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={points} margin={{ top: 10, right: 12, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="4 4" />
+            <XAxis dataKey="x_m" tickFormatter={(v)=>`${v}`} />
+            <YAxis label={{ value: "mm", angle: -90, position: "insideLeft" }}/>
+            <Tooltip labelFormatter={(l)=>`${l} m`} formatter={(v)=>[v,"Bitola (mm)"]}/>
+            <Legend />
+            <Line type="monotone" dataKey="gauge" name="Bitola (mm)" strokeWidth={2} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </ChartCard>
+    </main>
+  );
 }
+
+function ChartCard({ title, subtitle, children }) {
+  return (
+    <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, marginBottom: 12 }}>
+      <div style={{ margin: "4px 0 8px 4px" }}>
+        <h3 style={{ margin: 0 }}>{title}</h3>
+        <p style={{ margin: 0, color: "#6b7280" }}>{subtitle}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+const btn = {
+  background: "#eef2ff",
+  border: "1px solid #c7d2fe",
+  color: "#1f2937",
+  padding: "8px 12px",
+  borderRadius: 10,
+  cursor: "pointer"
+};
+const btnPrimary = {
+  background: "#2563eb",
+  color: "#fff",
+  borderColor: "#2563eb"
+};
