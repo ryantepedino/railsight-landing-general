@@ -2,38 +2,142 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RailSight — Inteligência em Monitoramento Ferroviário</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RailSight — Inteligência em Monitoramento Ferroviário | Data Tech</title>
     <link rel="icon" type="image/png" href="/favicon.png" />
+
+    <!-- Metadados p/ preview -->
+    <meta name="description" content="RailSight — Monitoramento ferroviário com análises técnicas (curvatura, crosslevel, bitola), exportação de relatórios e integração via WhatsApp.">
+    <meta property="og:title" content="RailSight — Inteligência em Monitoramento Ferroviário">
+    <meta property="og:description" content="Demonstração ao vivo com gráficos e exportação.">
+    <meta property="og:type" content="website">
+
+    <style>
+      :root{
+        --bg:#0b1020;
+        --card:#0f1426;
+        --text:#e6e7ee;
+        --muted:#a9afc1;
+        --brand:#7c3aed; /* roxo */
+        --brand-2:#60a5fa; /* azul apoio */
+        --ok:#16a34a;
+      }
+      *{box-sizing:border-box}
+      html,body{margin:0;padding:0;background:#0b1020;color:var(--text);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+      a{color:inherit;text-decoration:none}
+
+      /* Header */
+      .topbar{
+        position:sticky;top:0;z-index:50;
+        backdrop-filter:saturate(140%) blur(6px);
+        background:linear-gradient( to right, rgba(12,18,38,.75), rgba(12,18,38,.55) );
+        border-bottom:1px solid rgba(255,255,255,.06);
+      }
+      .wrap{max-width:1200px;margin:0 auto;padding:14px 16px;display:flex;align-items:center;gap:16px}
+      .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.2px}
+      .brand-badge{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--brand),#3b82f6)}
+      .brand span{opacity:.9}
+
+      .navgap{flex:1}
+      .btn{padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:transparent;color:var(--text)}
+      .btn.primary{background:var(--brand);border-color:transparent}
+      .btn:hover{opacity:.92}
+
+      /* Hero */
+      .hero{max-width:1200px;margin:28px auto 8px;padding:0 16px;display:grid;grid-template-columns:1.4fr .6fr;gap:18px}
+      @media (max-width:960px){.hero{grid-template-columns:1fr}}
+      .hero h1{margin:0 0 10px;font-size:clamp(22px,4.4vw,34px)}
+      .hero p{margin:0 0 16px;color:var(--muted)}
+      .cta{display:flex;gap:12px;flex-wrap:wrap}
+
+      /* Card demo */
+      .card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:14px}
+      .section{max-width:1200px;margin:16px auto;padding:0 16px}
+
+      /* Loader */
+      .loader{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:14px}
+      .dot{width:8px;height:8px;border-radius:999px;background:var(--brand);animation:blink 1s infinite}
+      @keyframes blink{0%,100%{opacity:.3}50%{opacity:1}}
+
+      /* Footer */
+      footer{margin:26px 0 60px;color:var(--muted)}
+      .foot{max-width:1200px;margin:0 auto;padding:0 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+      .foot a{color:var(--brand-2)}
+
+      /* WhatsApp float */
+      .wa-float{
+        position: fixed; right: 20px; bottom: 20px; z-index: 60;
+        width: 60px; height: 60px; border-radius: 50%;
+        display:grid;place-items:center;
+        background: #25D366; box-shadow:0 10px 30px rgba(0,0,0,.45);
+      }
+      .wa-float:hover{transform:translateY(-1px)}
+      .wa-float svg{width:28px;height:28px;fill:#fff}
+    </style>
   </head>
+
   <body>
-    <div id="app"></div>
-    <script type="module" src="/main.jsx"></script>
+    <!-- Topbar -->
+    <div class="topbar">
+      <div class="wrap">
+        <div class="brand">
+          <div class="brand-badge"></div>
+          <div>Data Tech <span>RailSight</span></div>
+        </div>
+        <div class="navgap"></div>
+        <a href="#demo" class="btn">Entrar na Demo</a>
+        <a href="https://wa.me/5532991413852" target="_blank" class="btn primary">Agendar no WhatsApp</a>
+      </div>
+    </div>
+
+    <!-- Hero -->
+    <section class="hero">
+      <div>
+        <h1>RailSight — Inteligência em Monitoramento Ferroviário</h1>
+        <p>Reduza falhas, aumente a segurança e otimize custos em qualquer operação — carga ou passageiros.</p>
+        <div class="cta">
+          <a href="#demo" class="btn primary">Entrar na Demo</a>
+          <a href="https://wa.me/5532991413852" target="_blank" class="btn">Agendar no WhatsApp</a>
+        </div>
+      </div>
+      <div class="card">
+        <div class="loader">
+          <div class="dot"></div>
+          <div>
+            <div><strong>Preparando demonstração…</strong></div>
+            <small>Na primeira visita a API pode demorar até ~60s (free tier). Obrigado por aguardar!</small>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Demo -->
+    <section class="section card" id="demo">
+      <!-- Texto pequeno acima dos controles (renderizado pelo app também) -->
+      <div id="app"></div>
+    </section>
+
+    <footer>
+      <div class="foot">
+        <div>© <span id="yy"></span> Data Tech — RailSight. Todos os direitos reservados.</div>
+        <div><a href="https://wa.me/5532991413852" target="_blank">Fale conosco no WhatsApp</a></div>
+      </div>
+    </footer>
 
     <!-- Botão WhatsApp flutuante -->
-    <a 
-      href="https://wa.me/5532991413852" 
-      target="_blank" 
-      rel="noopener noreferrer"
-      style="
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background-color: #25D366;
-        color: white;
-        border-radius: 50%;
-        width: 60px;
-        height: 60px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 28px;
-        text-decoration: none;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-      "
-    >
-      💬
+    <a class="wa-float" href="https://wa.me/5532991413852" target="_blank" aria-label="Fale no WhatsApp">
+      <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><path d="M19.11 17.3c-.27-.14-1.6-.79-1.85-.88-.24-.09-.42-.14-.6.14-.18.27-.69.88-.85 1.06-.16.18-.31.2-.58.07-.27-.14-1.15-.42-2.2-1.35-.81-.72-1.35-1.6-1.51-1.87-.16-.27-.02-.41.12-.55.12-.12.27-.31.4-.47.14-.16.18-.27.27-.45.09-.18.05-.34-.02-.48-.07-.14-.6-1.45-.82-1.98-.22-.52-.44-.45-.6-.46-.16-.01-.34-.01-.52-.01-.18 0-.48.07-.73.34-.25.27-.96.94-.96 2.3 0 1.36.99 2.67 1.13 2.85.14.18 1.95 2.98 4.72 4.05.66.29 1.17.46 1.57.59.66.21 1.27.18 1.75.11.53-.08 1.6-.65 1.83-1.28.23-.63.23-1.17.16-1.28-.07-.11-.25-.18-.52-.32zM16.02 5.33c-5.86 0-10.62 4.76-10.62 10.62 0 1.87.49 3.62 1.34 5.14L5 27l6.08-1.6c1.47.81 3.16 1.27 4.94 1.27 5.86 0 10.62-4.76 10.62-10.62s-4.76-10.62-10.62-10.62zm0 19.27c-1.7 0-3.27-.5-4.58-1.36l-.33-.2-3.61.95.96-3.51-.21-.36c-.8-1.3-1.27-2.83-1.27-4.47 0-4.7 3.82-8.52 8.52-8.52s8.52 3.82 8.52 8.52-3.82 8.52-8.52 8.52z"/></svg>
     </a>
+
+    <!-- Ano no rodapé + acorda API -->
+    <script>
+      document.getElementById('yy').textContent = new Date().getFullYear();
+      // Acorda a API (Render free) para evitar gráfico vazio na primeira visita
+      fetch('https://railsight-api.onrender.com/health').catch(()=>{});
+    </script>
+
+    <!-- Seu app (gráficos/controles) -->
+    <script type="module" src="/main.jsx"></script>
   </body>
 </html>
 
