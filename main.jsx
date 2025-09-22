@@ -1,278 +1,228 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "https://railsight-api.onrender.com";
+/* ================== CONFIG ================== */
+const API_BASE = (import.meta?.env?.VITE_API_BASE) || "https://railsight-api.onrender.com";
+/* ============================================ */
 
-// -------- util: retry com backoff ----------
-async function fetchWithRetry(path, { retries = [2000, 5000, 10000] } = {}) {
-  const url = `${API_BASE}${path}`;
-  let lastErr;
-  for (let i = 0; i <= retries.length; i++) {
+/* util: CSV */
+function toCSV(rows, headers) {
+  const h = headers.join(",");
+  const body = rows.map(r => headers.map(k => r[k]).join(",")).join("\n");
+  return h + "\n" + body;
+}
+
+function saveBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* fetch com retries e mensagens claras */
+async function fetchWithRetry(url, opts = {}) {
+  const tries = [1000, 3000, 7000]; // 1s, 3s, 7s
+  let lastErr = null;
+  for (let i = 0; i < tries.length; i++) {
     try {
-      const res = await fetch(url, { headers: { "Content-Type": "application/json" } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      const r = await fetch(url, { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return await r.json();
     } catch (err) {
       lastErr = err;
-      if (i < retries.length) {
-        await new Promise(r => setTimeout(r, retries[i]));
-      }
+      await new Promise(res => setTimeout(res, tries[i]));
     }
   }
-  throw lastErr;
+  if (lastErr) throw lastErr;
 }
 
-// -------- helpers p/ export ----------
-function toCSV(rows) {
-  // rows: array de objetos
-  if (!rows?.length) return "";
-  const headers = Object.keys(rows[0]);
-  const lines = [headers.join(",")];
-  for (const r of rows) lines.push(headers.map(h => r[h]).join(","));
-  return lines.join("\n");
-}
+/* componentes pequenos */
+const Pill = ({ children, active, onClick }) => (
+  <button className={"chip" + (active ? " active" : "")} onClick={onClick}>{children}</button>
+);
 
-function download(filename, text) {
-  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(link.href);
-}
+const SectionTitle = ({ children }) => (
+  <h3 style={{margin:"0 0 8px", fontSize:18}}>{children}</h3>
+);
 
-// -------- componente Demo ----------
-function DemoSection() {
-  const [kmIni, setKmIni] = useState(333800);  // valor referência (igual ao mock)
-  const [win, setWin] = useState(300);
-  const [step] = useState(1);
-  const [data, setData] = useState(null);
-  const [state, setState] = useState("idle"); // idle | loading | ok | error
-  const [message, setMessage] = useState("");
-
-  // transforma o JSON da API em linhas para os gráficos
-  const series = useMemo(() => {
-    if (!data?.series) return [];
-    const n = data.series.curvature?.length || 0;
-    const out = [];
-    for (let i = 0; i < n; i++) {
-      out.push({
-        x: i, // metros relativos dentro da janela
-        curvature: round(data.series.curvature?.[i]),
-        crosslevel: round(data.series.crosslevel?.[i]),
-        gauge: round(data.series.gauge?.[i]),
-      });
-    }
-    return out;
-  }, [data]);
-
-  function round(v) {
-    if (typeof v !== "number") return v;
-    return Math.round(v * 1000) / 1000;
-  }
-
-  async function load() {
-    setState("loading");
-    setMessage("Conectando à API…");
-    try {
-      // o endpoint já suporta os defaults; se quiser no futuro:
-      // const q = `?km_ini=${kmIni}&window_m=${win}&step_m=${step}`;
-      const json = await fetchWithRetry("/segment");
-      setData(json);
-      setState("ok");
-    } catch (err) {
-      setMessage(
-        "Falha ao carregar dados. O servidor gratuito pode demorar a acordar. Tente atualizar a página ou volte em instantes."
-      );
-      setState("error");
-      console.error(err);
-    }
-  }
-
-  useEffect(() => {
-    setMessage("Acordando servidor (Render Free)… a primeira chamada pode levar até 60s.");
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kmIni, win, step]);
-
-  function move(delta) {
-    setKmIni((k) => k + delta); // apenas visual/placeholder (mock não usa por enquanto)
-  }
-
-  function exportCSV() {
-    const csv = toCSV(series.map(r => ({
-      x_m: r.x,
-      curvature_deg: r.curvature ?? "",
-      crosslevel_mm: r.crosslevel ?? "",
-      gauge_mm: r.gauge ?? "",
-    })));
-    download(`railsight_janela_${win}m_km${kmIni}.csv`, csv);
-  }
-
-  function printPDF() {
-    // abre diálogo do navegador; o usuário escolhe "Salvar como PDF"
-    window.print();
-  }
-
-  const hasData = state === "ok" && series.length > 0;
-
+/* gráfico reutilizável */
+function MetricChart({ title, unit, data, dataKey, stroke }) {
   return (
-    <section style={{ maxWidth: 1120, margin: "24px auto", padding: "0 12px" }}>
-      <div style={cardStyle}>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ color: "#6b7280", fontSize: 14 }}>
-            API base: <code>{API_BASE}</code>
-          </span>
-        </div>
-
-        {/* Controles */}
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-          <button className="btn-out" onClick={() => move(-100)}>-100 m</button>
-          <button className="btn-out" onClick={() => move(100)}>+100 m</button>
-
-          <span style={{ marginLeft: 12 }}>Janela:</span>
-          {[200, 300, 500].map((w) => (
-            <button
-              key={w}
-              className={`btn-choice ${w === win ? "active" : ""}`}
-              onClick={() => setWin(w)}
-            >
-              {w} m
-            </button>
-          ))}
-
-          <span style={{ marginLeft: 12, color: "#6b7280" }}>
-            KM inicial (ref): <strong>{kmIni}</strong>
-          </span>
-
-          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-            <button className="btn" onClick={exportCSV}>Exportar CSV</button>
-            <button className="btn secondary" onClick={printPDF}>Salvar em PDF (imprimir)</button>
-          </div>
-        </div>
-
-        {/* Status / loading */}
-        {state !== "ok" && (
-          <div style={{ marginTop: 12 }}>
-            <div className="loader" />
-            <p style={{ color: "#6b7280", marginTop: 8 }}>{message}</p>
-          </div>
-        )}
-
-        {/* Gráficos */}
-        {hasData && (
-          <div style={{ marginTop: 16, display: "grid", gap: 16 }}>
-            <ChartBlock title="Curvatura (°)" data={series} yUnit="°" dataKey="curvature" color="#6366F1" />
-            <ChartBlock title="Crosslevel (mm)" data={series} yUnit="mm" dataKey="crosslevel" color="#0EA5E9" />
-            <ChartBlock title="Bitola (mm)" data={series} yUnit="mm" dataKey="gauge" color="#22C55E" />
-          </div>
-        )}
-
-        {/* Aviso se sem dados */}
-        {state === "ok" && !hasData && (
-          <p style={{ color: "#6b7280", marginTop: 12 }}>
-            Sem dados para exibir nesta janela.
-          </p>
-        )}
-      </div>
-
-      {/* estilos rápidos */}
-      <style>{`
-        .btn {
-          background: #2563eb;
-          color: white;
-          border: none;
-          border-radius: 10px;
-          padding: 10px 14px;
-          cursor: pointer;
-          font-weight: 600;
-        }
-        .btn.secondary {
-          background: transparent;
-          border: 1px solid #93c5fd;
-          color: #1f2937;
-        }
-        .btn:hover { filter: brightness(1.05); }
-
-        .btn-out {
-          background: white;
-          border: 1px solid #e5e7eb;
-          border-radius: 8px;
-          padding: 8px 10px;
-          cursor: pointer;
-        }
-        .btn-choice {
-          background: white;
-          border: 1px solid #e5e7eb;
-          border-radius: 999px;
-          padding: 6px 10px;
-          cursor: pointer;
-          font-weight: 600;
-        }
-        .btn-choice.active {
-          background: #111827;
-          color: white;
-          border-color: #111827;
-        }
-        .loader {
-          width: 28px;
-          height: 28px;
-          border: 3px solid #e5e7eb;
-          border-top-color: #2563eb;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-      `}</style>
-    </section>
-  );
-}
-
-function ChartBlock({ title, data, yUnit, dataKey, color }) {
-  return (
-    <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12 }}>
-      <h3 style={{ margin: 0, marginBottom: 8, fontSize: 16 }}>{title}</h3>
-      <div style={{ height: 280 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ left: 12, right: 12, top: 8, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="x" tick={{ fontSize: 12 }} label={{ value: "Distância na janela (m)", position: "insideBottom", offset: -2 }} />
-            <YAxis tick={{ fontSize: 12 }} label={{ value: yUnit, angle: -90, position: "insideLeft" }} />
-            <Tooltip />
-            <Line type="monotone" dataKey={dataKey} dot={false} stroke={color} strokeWidth={2} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+    <div className="chartCard">
+      <div className="chartTitle">{title}</div>
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={data} syncId="railsight" margin={{ top: 8, right: 16, left: 0, bottom: 20 }}>
+          <CartesianGrid stroke="#223" strokeDasharray="4 6" />
+          <XAxis dataKey="x" tick={{ fill:"#9fb3d9", fontSize:12 }} label={{ value:"Distância na janela (m)", dy: 18, fill:"#9fb3d9" }} />
+          <YAxis width={40} tick={{ fill:"#9fb3d9", fontSize:12 }} label={{ value:unit, angle:-90, dx:-10, fill:"#9fb3d9" }} />
+          <Tooltip contentStyle={{ background:"#0e1126", border:"1px solid #1d2442", borderRadius:8, color:"#eaf0ff" }} />
+          <Line type="monotone" dataKey={dataKey} dot={false} stroke={stroke} strokeWidth={2.2} />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }
 
-const cardStyle = {
-  background: "white",
-  border: "1px solid #e5e7eb",
-  borderRadius: 12,
-  padding: 16,
-};
-
+/* página */
 function App() {
+  const [win, setWin] = useState(300);
+  const [km0, setKm0] = useState(333800);
+  const [offset, setOffset] = useState(0); // deslocamento relativo
+  const [loading, setLoading] = useState(true);
+  const [note, setNote] = useState("Preparando demonstração… Na primeira visita a API pode demorar até ~60s (free tier). Obrigado por aguardar!");
+  const [error, setError] = useState("");
+  const [raw, setRaw] = useState(null);
+
+  const startKm = km0 + offset;
+
+  const url = useMemo(() => {
+    const u = new URL(API_BASE.replace(/\/+$/,"") + "/segment");
+    u.searchParams.set("km_ini", String(startKm));
+    u.searchParams.set("window_m", String(win));
+    u.searchParams.set("step_m", "1");
+    return u.toString();
+  }, [startKm, win]);
+
+  async function load() {
+    setLoading(true);
+    setError("");
+    setNote("Conectando à API…");
+    try {
+      const data = await fetchWithRetry(url);
+      setRaw(data);
+      setNote("Pronto! (API base: " + API_BASE + ")");
+    } catch (e) {
+      setError("Não foi possível carregar os dados (" + (e?.message || "erro") + "). Tentar novamente.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, [url]);
+
+  const series = useMemo(() => {
+    if (!raw?.series) return [];
+    const n = raw.series.curvature?.length || 0;
+    const xs = Array.from({ length: n }, (_, i) => i);
+    const toMM = arr => (arr || []).map(v => Number(v));
+    const curv = toMM(raw.series.curvature);
+    const cross = toMM(raw.series.crosslevel);
+    const gauge = toMM(raw.series.gauge);
+    const rows = [];
+    for (let i = 0; i < n; i++) {
+      rows.push({
+        x: xs[i],
+        curvature: Number(curv[i] || 0),
+        crosslevel: Number(cross[i] || 0),
+        gauge: Number(gauge[i] || 0)
+      });
+    }
+    return rows;
+  }, [raw]);
+
+  function exportCSV() {
+    if (!series.length) return;
+    const csv = toCSV(series, ["x","curvature","crosslevel","gauge"]);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    saveBlob("railsight_window_"+win+"_m.csv", blob);
+  }
+  function printPDF() { window.print(); }
+
   return (
-    <>
-      {/* Se sua “hero” está no HTML, aqui renderizamos só a demo abaixo */}
-      <DemoSection />
-    </>
+    <div className="container">
+      {/* Topbar */}
+      <div className="topbar">
+        <div className="brand">
+          <span className="logoDot"></span>
+          <span>Data Tech <span style={{opacity:.75}}>RailSight</span></span>
+        </div>
+        <div className="topbtns">
+          <a className="btn" href="#demo">Entrar na Demo</a>
+          <a className="btn wa" href="https://wa.me/5532991413852" target="_blank" rel="noopener noreferrer">Agendar no WhatsApp</a>
+        </div>
+      </div>
+
+      {/* Hero */}
+      <div className="hero">
+        <div className="card">
+          <h1 style={{margin:"0 0 6px"}}>RailSight — Inteligência em Monitoramento Ferroviário</h1>
+          <p className="muted" style={{margin:"0 0 16px"}}>
+            Reduza falhas, aumente a segurança e otimize custos em qualquer operação — carga ou passageiros.
+          </p>
+          <div className="row">
+            <a className="btn primary" href="#demo">Entrar na Demo</a>
+            <a className="btn wa" href="https://wa.me/5532991413852" target="_blank" rel="noopener noreferrer">Agendar no WhatsApp</a>
+          </div>
+        </div>
+
+        <div className="card">
+          <div style={{fontWeight:700, marginBottom:6}}>Preparando demonstração…</div>
+          <div className="muted" style={{lineHeight:1.4}}>{note}</div>
+        </div>
+      </div>
+
+      {/* Demo */}
+      <div id="demo" className="card" style={{padding:"16px"}}>
+        <div className="row" style={{justifyContent:"space-between", alignItems:"center"}}>
+          <SectionTitle>Janela de Via (conectada à API)</SectionTitle>
+          <div className="row">
+            <button className="btn" onClick={exportCSV}>Exportar CSV</button>
+            <button className="btn" onClick={printPDF}>Salvar em PDF</button>
+          </div>
+        </div>
+
+        <div className="segTitle">API base: <span className="muted">{API_BASE.replace(/\/+$/,"")}/segment</span></div>
+
+        <div className="controls">
+          <div className="row">
+            <Pill onClick={() => setOffset(offset - 100)}>−100 m</Pill>
+            <Pill onClick={() => setOffset(offset + 100)}>+100 m</Pill>
+          </div>
+          <div className="row" style={{marginLeft:12}}>
+            Janela:
+            <Pill active={win===200} onClick={() => setWin(200)}>200 m</Pill>
+            <Pill active={win===300} onClick={() => setWin(300)}>300 m</Pill>
+            <Pill active={win===500} onClick={() => setWin(500)}>500 m</Pill>
+          </div>
+          <div className="row" style={{marginLeft:12}}>
+            <span className="muted">KM inicial (ref): </span>
+            <span style={{fontWeight:700, marginLeft:6}}>{km0}</span>
+          </div>
+        </div>
+
+        {loading && (
+          <div className="card" style={{borderStyle:"dashed", marginTop:8}}>
+            <div className="muted">Carregando dados…</div>
+          </div>
+        )}
+
+        {!!error && (
+          <div className="card" style={{borderStyle:"dashed", marginTop:8, borderColor:"#7f1d1d", background:"#290c0f"}}>
+            <div style={{color:"#ffb4b4", marginBottom:8}}>{error}</div>
+            <button className="btn primary" onClick={load}>Tentar novamente</button>
+          </div>
+        )}
+
+        {!loading && !error && series.length > 0 && (
+          <>
+            <MetricChart title="Curvatura (°)" unit="°" data={series} dataKey="curvature" stroke="#a78bfa" />
+            <div style={{height:10}} />
+            <MetricChart title="Crosslevel (mm)" unit="mm" data={series} dataKey="crosslevel" stroke="#60a5fa" />
+            <div style={{height:10}} />
+            <MetricChart title="Bitola (mm)" unit="mm" data={series} dataKey="gauge" stroke="#34d399" />
+          </>
+        )}
+      </div>
+
+      <div className="footer space"></div>
+    </div>
   );
 }
 
+/* mount */
 createRoot(document.getElementById("app")).render(<App />);
-
