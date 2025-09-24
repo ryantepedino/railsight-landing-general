@@ -1,228 +1,309 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  CartesianGrid, ReferenceLine, Legend
 } from "recharts";
 
-/* ================== CONFIG ================== */
-const API_BASE = (import.meta?.env?.VITE_API_BASE) || "https://railsight-api.onrender.com";
-/* ============================================ */
+const API_BASE = import.meta.env.VITE_API_BASE?.replace(/\/+$/,"");
+const PY_API   = import.meta.env.VITE_PY_API?.replace(/\/+$/,""); // opcional
+const MAX_RETRY_MS = [1500, 3000, 5000, 8000];
 
-/* util: CSV */
-function toCSV(rows, headers) {
-  const h = headers.join(",");
-  const body = rows.map(r => headers.map(k => r[k]).join(",")).join("\n");
-  return h + "\n" + body;
+function movingAverage(arr, span = 5) {
+  if (!Array.isArray(arr) || span <= 1) return arr;
+  const out = new Array(arr.length);
+  const half = Math.floor(span / 2);
+  for (let i = 0; i < arr.length; i++) {
+    let s = 0, c = 0;
+    for (let k = -half; k <= half; k++) {
+      const j = i + k;
+      if (j >= 0 && j < arr.length) { s += arr[j]; c++; }
+    }
+    out[i] = s / c;
+  }
+  return out;
 }
-
-function saveBlob(filename, blob) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+const gridColor  = "rgba(255,255,255,.09)";
+const axisColor  = "rgba(255,255,255,.78)";
+const commonGrid = <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />;
+const commonTooltip = (labelFormatter) => ({
+  contentStyle: { background: "#0B1020", border: "1px solid #1F2A44" },
+  labelStyle:   { color: "#9FC1FF" },
+  itemStyle:    { color: "#fff" },
+  labelFormatter,
+});
+function niceDomain([min, max], pad = 0, step = 1) {
+  if (!isFinite(min) || !isFinite(max)) return ["auto","auto"];
+  const lo = Math.floor((min - pad) / step) * step;
+  const hi = Math.ceil((max + pad) / step) * step;
+  return [lo, hi];
 }
-
-/* fetch com retries e mensagens claras */
-async function fetchWithRetry(url, opts = {}) {
-  const tries = [1000, 3000, 7000]; // 1s, 3s, 7s
+function autoTicksKm(data, maxTicks = 8) {
+  if (!data?.length) return undefined;
+  const xs = data.map(d => d.x);
+  const min = Math.min(...xs), max = Math.max(...xs);
+  const span = max - min; if (span <= 0) return [min];
+  const candidates = [0.001, 0.002, 0.005, 0.01, 0.02];
+  let step = candidates[0];
+  for (const c of candidates) { if (span / c <= maxTicks) { step = c; break; } }
+  const ticks = [];
+  let t = Math.ceil(min / step) * step;
+  for (; t <= max + 1e-9; t += step) ticks.push(+t.toFixed(3));
+  return ticks;
+}
+async function fetchJsonWithRetry(url) {
   let lastErr = null;
-  for (let i = 0; i < tries.length; i++) {
+  for (let i = 0; i < MAX_RETRY_MS.length; i++) {
     try {
       const r = await fetch(url, { cache: "no-store" });
-      if (!r.ok) throw new Error("HTTP " + r.status);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return await r.json();
     } catch (err) {
       lastErr = err;
-      await new Promise(res => setTimeout(res, tries[i]));
+      await new Promise(res => setTimeout(res, MAX_RETRY_MS[i]));
     }
   }
-  if (lastErr) throw lastErr;
+  throw lastErr ?? new Error("Falha ao buscar dados");
+}
+async function processInPython(segment) {
+  if (!PY_API) return null;
+  try {
+    const r = await fetch(`${PY_API}/process`, {
+      method: "POST",
+      headers: { "Content-Type":"application/json" },
+      body: JSON.stringify(segment),
+    });
+    if (!r.ok) throw new Error(`PY HTTP ${r.status}`);
+    return await r.json();
+  } catch {
+    return null;
+  }
 }
 
-/* componentes pequenos */
-const Pill = ({ children, active, onClick }) => (
-  <button className={"chip" + (active ? " active" : "")} onClick={onClick}>{children}</button>
-);
-
-const SectionTitle = ({ children }) => (
-  <h3 style={{margin:"0 0 8px", fontSize:18}}>{children}</h3>
-);
-
-/* gráfico reutilizável */
-function MetricChart({ title, unit, data, dataKey, stroke }) {
+function CurvatureChart({ data, domain, refLinesKm=[] }) {
   return (
-    <div className="chartCard">
-      <div className="chartTitle">{title}</div>
+    <div className="card">
+      <h3>Curvatura (°)</h3>
       <ResponsiveContainer width="100%" height={260}>
-        <LineChart data={data} syncId="railsight" margin={{ top: 8, right: 16, left: 0, bottom: 20 }}>
-          <CartesianGrid stroke="#223" strokeDasharray="4 6" />
-          <XAxis dataKey="x" tick={{ fill:"#9fb3d9", fontSize:12 }} label={{ value:"Distância na janela (m)", dy: 18, fill:"#9fb3d9" }} />
-          <YAxis width={40} tick={{ fill:"#9fb3d9", fontSize:12 }} label={{ value:unit, angle:-90, dx:-10, fill:"#9fb3d9" }} />
-          <Tooltip contentStyle={{ background:"#0e1126", border:"1px solid #1d2442", borderRadius:8, color:"#eaf0ff" }} />
-          <Line type="monotone" dataKey={dataKey} dot={false} stroke={stroke} strokeWidth={2.2} />
+        <LineChart data={data} margin={{ top: 5, right: 16, left: 0, bottom: 8 }}>
+          {commonGrid}
+          <XAxis dataKey="x" stroke={axisColor} tick={{ fill: axisColor }} ticks={autoTicksKm(data)} />
+          <YAxis stroke={axisColor} tick={{ fill: axisColor }} domain={domain}
+            tickFormatter={(v)=>`${v.toFixed(1)}°`} />
+          <Tooltip {...commonTooltip((x)=>`${x.toFixed(3)} km`)} />
+          <Legend />
+          {refLinesKm.map((km,i)=>(
+            <ReferenceLine key={i} x={km} stroke="#ff7ab6" strokeDasharray="3 3" />
+          ))}
+          <Line type="monotone" dataKey="y" name="Curvatura" stroke="#A78BFA"
+                strokeWidth={2.2} dot={false} isAnimationActive={false}/>
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+function CrosslevelChart({ data, domain, refLinesKm=[] }) {
+  return (
+    <div className="card">
+      <h3>Crosslevel (mm)</h3>
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={data} margin={{ top: 5, right: 16, left: 0, bottom: 8 }}>
+          {commonGrid}
+          <XAxis dataKey="x" stroke={axisColor} tick={{ fill: axisColor }} ticks={autoTicksKm(data)} />
+          <YAxis stroke={axisColor} tick={{ fill: axisColor }} domain={domain}
+            tickFormatter={(v)=>`${v} mm`} />
+          <Tooltip {...commonTooltip((x)=>`${x.toFixed(3)} km`)} />
+          <Legend />
+          {refLinesKm.map((km,i)=>(
+            <ReferenceLine key={i} x={km} stroke="#ff7ab6" strokeDasharray="3 3" />
+          ))}
+          <Line type="monotone" dataKey="y" name="Crosslevel" stroke="#60A5FA"
+                strokeWidth={2.2} dot={false} isAnimationActive={false}/>
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+function GaugeChart({ data, domain, refLinesKm=[] }) {
+  return (
+    <div className="card">
+      <h3>Bitola (mm)</h3>
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={data} margin={{ top: 5, right: 16, left: 0, bottom: 8 }}>
+          {commonGrid}
+          <XAxis dataKey="x" stroke={axisColor} tick={{ fill: axisColor }} ticks={autoTicksKm(data)} />
+          <YAxis stroke={axisColor} tick={{ fill: axisColor }} domain={domain}
+            tickCount={8} tickFormatter={(v)=>`${v} mm`} />
+          <Tooltip {...commonTooltip((x)=>`${x.toFixed(3)} km`)} />
+          <Legend />
+          {refLinesKm.map((km,i)=>(
+            <ReferenceLine key={i} x={km} stroke="#ff7ab6" strokeDasharray="3 3" />
+          ))}
+          <Line type="monotone" dataKey="y" name="Bitola" stroke="#F87171"
+                strokeWidth={2.4} dot={false} isAnimationActive={false}/>
         </LineChart>
       </ResponsiveContainer>
     </div>
   );
 }
 
-/* página */
-function App() {
-  const [win, setWin] = useState(300);
-  const [km0, setKm0] = useState(333800);
-  const [offset, setOffset] = useState(0); // deslocamento relativo
-  const [loading, setLoading] = useState(true);
-  const [note, setNote] = useState("Preparando demonstração… Na primeira visita a API pode demorar até ~60s (free tier). Obrigado por aguardar!");
-  const [error, setError] = useState("");
-  const [raw, setRaw] = useState(null);
+function App(){
+  const [segment, setSegment] = useState(null);
+  const [status, setStatus]   = useState("idle");
+  const [msg, setMsg]         = useState("");
+  const [win, setWin]         = useState(300);
+  const [kmIniOverride, setKmIniOverride] = useState(null);
+  const refKm = useMemo(()=>[66.940, 66.945],[]);
 
-  const startKm = km0 + offset;
+  useEffect(()=>{
+    (async()=>{
+      setStatus("loading"); setMsg("Carregando…");
+      try{
+        const url = `${API_BASE}/segment?window=${win}`;
+        const seg = await fetchJsonWithRetry(url);
+        if(!seg?.series) throw new Error("Segmento inválido");
+        const segUse = {
+          ...seg,
+          km_ini: kmIniOverride ?? seg.km_ini,
+          window_m: seg.window_m ?? win,
+          step_m: seg.step_m ?? 1
+        };
+        const py = await processInPython(segUse);
+        setSegment(py?.series ? {...segUse, series: py.series, meta: py.meta} : segUse);
+        setStatus("ok"); setMsg("");
+      }catch(err){
+        setStatus("err"); setMsg(String(err?.message || err));
+      }
+    })();
+  },[win, kmIniOverride]);
 
-  const url = useMemo(() => {
-    const u = new URL(API_BASE.replace(/\/+$/,"") + "/segment");
-    u.searchParams.set("km_ini", String(startKm));
-    u.searchParams.set("window_m", String(win));
-    u.searchParams.set("step_m", "1");
-    return u.toString();
-  }, [startKm, win]);
+  const xKm = useMemo(()=>{
+    if(!segment) return [];
+    const n = Object.values(segment.series)[0]?.length ?? 0;
+    const km0 = (segment.km_ini ?? 333800)/1000;
+    return Array.from({length:n}, (_,i)=> +(km0 + i/1000).toFixed(3));
+  },[segment]);
 
-  async function load() {
-    setLoading(true);
-    setError("");
-    setNote("Conectando à API…");
-    try {
-      const data = await fetchWithRetry(url);
-      setRaw(data);
-      setNote("Pronto! (API base: " + API_BASE + ")");
-    } catch (e) {
-      setError("Não foi possível carregar os dados (" + (e?.message || "erro") + "). Tentar novamente.");
-    } finally {
-      setLoading(false);
+  const dataCurv = useMemo(()=>{
+    if(!segment?.series?.curvature) return [];
+    const ys = segment.series.curvature;
+    return xKm.map((x,i)=>({ x, y:+((ys[i] ?? 0)).toFixed(3) }));
+  },[segment, xKm]);
+
+  const dataCross = useMemo(()=>{
+    if(!segment?.series?.crosslevel) return [];
+    const ys = movingAverage(segment.series.crosslevel, 5);
+    return xKm.map((x,i)=>({ x, y:+((ys[i] ?? 0)).toFixed(2) }));
+  },[segment, xKm]);
+
+  const dataGauge = useMemo(()=>{
+    if(!segment?.series?.gauge) return [];
+    const ys = movingAverage(segment.series.gauge, 3);
+    return xKm.map((x,i)=>({ x, y:+((ys[i] ?? 0)).toFixed(1) }));
+  },[segment, xKm]);
+
+  const domCurv = useMemo(()=>{
+    if(!dataCurv.length) return ["auto","auto"];
+    const vals = dataCurv.map(d=>d.y); return niceDomain(
+      [Math.min(...vals), Math.max(...vals)], .2, .5
+    );
+  },[dataCurv]);
+
+  const domCross = useMemo(()=>{
+    if(!dataCross.length) return ["auto","auto"];
+    const vals = dataCross.map(d=>d.y);
+    const auto = niceDomain([Math.min(...vals), Math.max(...vals)], 1, 1);
+    return [Math.min(-5, auto[0]), Math.max(15, auto[1])];
+  },[dataCross]);
+
+  const domGauge = useMemo(()=>{
+    if(!dataGauge.length) return [1600,1635];
+    const vals = dataGauge.map(d=>d.y);
+    const auto = niceDomain([Math.min(...vals), Math.max(...vals)], 2, 1);
+    return [Math.min(1600, auto[0]), Math.max(1635, auto[1])];
+  },[dataGauge]);
+
+  function exportCSV(){
+    if(!segment) return;
+    const rows = ["km,y_curvature,y_crosslevel,y_gauge"];
+    const n = xKm.length;
+    for(let i=0;i<n;i++){
+      rows.push([
+        xKm[i],
+        dataCurv[i]?.y ?? "",
+        dataCross[i]?.y ?? "",
+        dataGauge[i]?.y ?? ""
+      ].join(","));
     }
+    const blob = new Blob([rows.join("\n")], {type:"text/csv"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `railsight_segment_${segment.km_ini}_${segment.window_m}.csv`;
+    a.click(); URL.revokeObjectURL(a.href);
   }
-
-  useEffect(() => { load(); }, [url]);
-
-  const series = useMemo(() => {
-    if (!raw?.series) return [];
-    const n = raw.series.curvature?.length || 0;
-    const xs = Array.from({ length: n }, (_, i) => i);
-    const toMM = arr => (arr || []).map(v => Number(v));
-    const curv = toMM(raw.series.curvature);
-    const cross = toMM(raw.series.crosslevel);
-    const gauge = toMM(raw.series.gauge);
-    const rows = [];
-    for (let i = 0; i < n; i++) {
-      rows.push({
-        x: xs[i],
-        curvature: Number(curv[i] || 0),
-        crosslevel: Number(cross[i] || 0),
-        gauge: Number(gauge[i] || 0)
-      });
-    }
-    return rows;
-  }, [raw]);
-
-  function exportCSV() {
-    if (!series.length) return;
-    const csv = toCSV(series, ["x","curvature","crosslevel","gauge"]);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    saveBlob("railsight_window_"+win+"_m.csv", blob);
+  function printPDF(){
+    window.print();
   }
-  function printPDF() { window.print(); }
 
   return (
-    <div className="container">
-      {/* Topbar */}
-      <div className="topbar">
-        <div className="brand">
-          <span className="logoDot"></span>
-          <span>Data Tech <span style={{opacity:.75}}>RailSight</span></span>
-        </div>
-        <div className="topbtns">
-          <a className="btn" href="#demo">Entrar na Demo</a>
-          <a className="btn wa" href="https://wa.me/5532991413852" target="_blank" rel="noopener noreferrer">Agendar no WhatsApp</a>
-        </div>
+    <div>
+      <div className="bar">
+        <span className="logoDot"></span>
+        <b>Data Tech RailSight</b>
+        <button className="btn right" onClick={()=>document.getElementById("demo")?.scrollIntoView({behavior:"smooth"})}>
+          Entrar na Demo
+        </button>
+        <a className="btn primary" href="https://wa.me/5532991413852" target="_blank" rel="noopener">Agendar no WhatsApp</a>
       </div>
 
-      {/* Hero */}
       <div className="hero">
-        <div className="card">
-          <h1 style={{margin:"0 0 6px"}}>RailSight — Inteligência em Monitoramento Ferroviário</h1>
-          <p className="muted" style={{margin:"0 0 16px"}}>
-            Reduza falhas, aumente a segurança e otimize custos em qualquer operação — carga ou passageiros.
-          </p>
-          <div className="row">
-            <a className="btn primary" href="#demo">Entrar na Demo</a>
-            <a className="btn wa" href="https://wa.me/5532991413852" target="_blank" rel="noopener noreferrer">Agendar no WhatsApp</a>
+        <div>
+          <h1>RailSight — Inteligência em Monitoramento Ferroviário</h1>
+          <p className="muted">Reduza falhas, aumente a segurança e otimize custos em qualquer operação — carga ou passageiros.</p>
+          <div className="call">
+            <button className="btn primary" onClick={()=>document.getElementById("demo")?.scrollIntoView({behavior:"smooth"})}>
+              Entrar na Demo
+            </button>
+            <a className="btn ghost" href="https://wa.me/5532991413852" target="_blank" rel="noopener">Agendar no WhatsApp</a>
           </div>
         </div>
-
-        <div className="card">
-          <div style={{fontWeight:700, marginBottom:6}}>Preparando demonstração…</div>
-          <div className="muted" style={{lineHeight:1.4}}>{note}</div>
+        <div className="note">
+          <b>Preparando demonstração…</b><br/>
+          Na primeira visita a API pode demorar ~60s (free tier). Obrigado por aguardar!
         </div>
       </div>
 
-      {/* Demo */}
-      <div id="demo" className="card" style={{padding:"16px"}}>
-        <div className="row" style={{justifyContent:"space-between", alignItems:"center"}}>
-          <SectionTitle>Janela de Via (conectada à API)</SectionTitle>
-          <div className="row">
+      <div id="demo" className="card">
+        <div className="row" style={{marginBottom:6}}>
+          <b className="muted">API base:</b>
+          <code style={{color:"#9FC1FF"}}>{API_BASE}</code>
+          {PY_API && <>
+            <b className="muted" style={{marginLeft:12}}>Python proc:</b>
+            <code style={{color:"#9FC1FF"}}>{PY_API}</code>
+          </>}
+          <span className="right segCtrls">
+            <span className="muted">Janela:</span>
+            {[200,300,500].map(v=>(
+              <span key={v} className={`chip ${win===v?"sel":""}`} onClick={()=>setWin(v)}>{v} m</span>
+            ))}
             <button className="btn" onClick={exportCSV}>Exportar CSV</button>
-            <button className="btn" onClick={printPDF}>Salvar em PDF</button>
-          </div>
+            <button className="btn ghost" onClick={printPDF}>Salvar em PDF</button>
+          </span>
         </div>
 
-        <div className="segTitle">API base: <span className="muted">{API_BASE.replace(/\/+$/,"")}/segment</span></div>
+        {status==="loading" && <div className="card" style={{borderStyle:"dashed"}}>{msg || "Carregando…"}</div>}
+        {status==="err" && <div className="card" style={{borderColor:"#DA4453", color:"#FFCED3"}}>Erro: {msg}</div>}
 
-        <div className="controls">
-          <div className="row">
-            <Pill onClick={() => setOffset(offset - 100)}>−100 m</Pill>
-            <Pill onClick={() => setOffset(offset + 100)}>+100 m</Pill>
+        {status==="ok" && (
+          <div className="grid">
+            <CurvatureChart data={dataCurv} domain={domCurv} refLinesKm={[66.940,66.945]} />
+            <CrosslevelChart data={dataCross} domain={domCross} refLinesKm={[66.940,66.945]} />
+            <GaugeChart     data={dataGauge} domain={domGauge} refLinesKm={[66.940,66.945]} />
           </div>
-          <div className="row" style={{marginLeft:12}}>
-            Janela:
-            <Pill active={win===200} onClick={() => setWin(200)}>200 m</Pill>
-            <Pill active={win===300} onClick={() => setWin(300)}>300 m</Pill>
-            <Pill active={win===500} onClick={() => setWin(500)}>500 m</Pill>
-          </div>
-          <div className="row" style={{marginLeft:12}}>
-            <span className="muted">KM inicial (ref): </span>
-            <span style={{fontWeight:700, marginLeft:6}}>{km0}</span>
-          </div>
-        </div>
-
-        {loading && (
-          <div className="card" style={{borderStyle:"dashed", marginTop:8}}>
-            <div className="muted">Carregando dados…</div>
-          </div>
-        )}
-
-        {!!error && (
-          <div className="card" style={{borderStyle:"dashed", marginTop:8, borderColor:"#7f1d1d", background:"#290c0f"}}>
-            <div style={{color:"#ffb4b4", marginBottom:8}}>{error}</div>
-            <button className="btn primary" onClick={load}>Tentar novamente</button>
-          </div>
-        )}
-
-        {!loading && !error && series.length > 0 && (
-          <>
-            <MetricChart title="Curvatura (°)" unit="°" data={series} dataKey="curvature" stroke="#a78bfa" />
-            <div style={{height:10}} />
-            <MetricChart title="Crosslevel (mm)" unit="mm" data={series} dataKey="crosslevel" stroke="#60a5fa" />
-            <div style={{height:10}} />
-            <MetricChart title="Bitola (mm)" unit="mm" data={series} dataKey="gauge" stroke="#34d399" />
-          </>
         )}
       </div>
-
-      <div className="footer space"></div>
     </div>
   );
 }
 
-/* mount */
 createRoot(document.getElementById("app")).render(<App />);
