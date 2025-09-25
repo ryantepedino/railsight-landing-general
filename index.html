@@ -2,47 +2,83 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
     <title>RailSight — Inteligência em Monitoramento Ferroviário</title>
     <link rel="icon" type="image/png" href="/favicon.png" />
     <style>
       :root{
-        --bg:#0A0F1C;--panel:#0E1426;--muted:#93a4c7;--text:#EAF2FF;--accent:#8B5CF6;
-        --accent-2:#60A5FA;--accent-3:#F87171;--grid:rgba(255,255,255,.08);--stroke:#1F2A44;
+        --bg:#0b0f1a;--panel:#12172a;--panel2:#0f1426;--txt:#e7ecff;--muted:#9fb0d3;
+        --brand:#7c3aed;--brand2:#a78bfa;--ok:#22c55e;--warn:#f59e0b;--danger:#ef4444;
+        --grid:#2a3353;--chip:#1b2340;--outline:#243055;
       }
-      *{box-sizing:border-box} html,body{height:100%}
-      body{margin:0;background:var(--bg);color:var(--text);font:400 15px/1.5 ui-sans-serif,system-ui,Segoe UI,Roboto,Ubuntu}
-      .wrap{max-width:1120px;margin:0 auto;padding:24px}
-      .bar{display:flex;align-items:center;gap:12px;padding:12px 0}
-      .logoDot{width:10px;height:10px;border-radius:50%;background:var(--accent)}
-      h1{font-size:28px;margin:8px 0 6px}
-      h2{font-size:22px;margin:6px 0 10px}
-      h3{font-size:16px;margin:8px 0 12px;color:#cfe3ff}
+      *{box-sizing:border-box}
+      html,body{height:100%}
+      body{
+        margin:0;background:#0b1220;color:var(--txt);
+        font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif; line-height:1.45;
+      }
+      a{color:var(--brand2);text-decoration:none}
+      header{
+        position:sticky;top:0;z-index:20;
+        background:linear-gradient(180deg,#0b1220 0%, rgba(11,18,32,.85) 100%);
+        border-bottom:1px solid var(--outline);
+        backdrop-filter: blur(6px);
+      }
+      .bar{max-width:1180px;margin:0 auto;display:flex;align-items:center;gap:16px;padding:12px 16px}
+      .logoDot{width:10px;height:10px;border-radius:50%;background:var(--brand2)}
+      .brand{font-weight:700}
+      nav{margin-left:auto;display:flex;gap:16px}
+      .chip{background:var(--chip);border:1px solid var(--outline);color:var(--txt);padding:8px 12px;border-radius:12px}
+      .btn{padding:10px 14px;border-radius:10px;border:1px solid var(--outline);background:var(--panel2);color:var(--txt);cursor:pointer}
+      .btn.primary{background:linear-gradient(180deg,var(--brand),#6d28d9);border-color:#5130c8}
+      .btn.ghost{background:transparent;border-color:var(--outline)}
+      main{max-width:1180px;margin:0 auto;padding:16px}
+      .hero{
+        display:grid;grid-template-columns:1.1fr .9fr;gap:20px;align-items:stretch;margin:16px 0 24px 0
+      }
+      .card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--outline);border-radius:16px;padding:22px}
+      .kicker{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;margin-bottom:6px}
+      h1{margin:0 0 10px 0;font-size:32px}
       .muted{color:var(--muted)}
-      .hero{display:grid;grid-template-columns:1fr 360px;gap:18px;align-items:start;margin:8px 0 18px}
-      .call{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
-      .btn{background:#1B2140;border:1px solid var(--stroke);color:var(--text);padding:9px 14px;border-radius:10px;cursor:pointer}
-      .btn.primary{background:var(--accent);border-color:transparent}
-      .btn.ghost{background:#1B2140}
-      .note{background:var(--panel);border:1px dashed var(--stroke);padding:12px;border-radius:12px;color:var(--muted)}
-      .card{background:var(--panel);border:1px solid var(--stroke);border-radius:14px;padding:14px;margin:14px 0}
-      .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-      .segCtrls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-      .chip{background:#121833;border:1px solid var(--stroke);color:#cfe3ff;padding:6px 10px;border-radius:999px;cursor:pointer}
-      .chip.sel{background:var(--accent);border-color:transparent}
-      .right{margin-left:auto}
-      .grid{display:grid;gap:14px}
-      @media (max-width:980px){.hero{grid-template-columns:1fr}}
-      table.preview{width:100%;border-collapse:collapse;font-size:13px}
-      table.preview th,table.preview td{border:1px solid var(--stroke);padding:6px 8px;text-align:right}
-      .wa-fab{position:fixed;right:18px;bottom:18px;width:58px;height:58px;border-radius:50%;
-        background:#25D366;display:grid;place-items:center;color:white;font-weight:700;
-        box-shadow:0 6px 24px rgba(0,0,0,.35);text-decoration:none}
+      .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:10px}
+      .demoHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap}
+      .controls{display:flex;gap:8px;flex-wrap:wrap}
+      .seg{display:flex;gap:6px;background:var(--chip);border:1px solid var(--outline);padding:6px;border-radius:999px}
+      .seg button{background:transparent;border:1px solid transparent;color:var(--txt);padding:6px 10px;border-radius:999px;cursor:pointer}
+      .seg button.active{background:var(--brand);border-color:#5b21b6}
+      .kbd{font-size:12px;color:var(--muted)}
+      .msg{display:flex;gap:10px;align-items:flex-start;background:#0f1a33;border:1px dashed var(--outline);padding:12px;border-radius:12px;color:#c7d2fe}
+      .chartCard{background:var(--panel);border:1px solid var(--outline);border-radius:16px;padding:12px;margin:8px 0}
+      footer{max-width:1180px;margin:24px auto 60px auto;color:var(--muted);font-size:14px;padding:0 16px}
+      .fab{
+        position:fixed;right:16px;bottom:18px;background:#22c55e;color:white;
+        width:56px;height:56px;border-radius:50%;display:grid;place-items:center;
+        font-weight:700;box-shadow:0 10px 24px rgba(34,197,94,.25);border:0;cursor:pointer
+      }
+      @media (max-width:980px){ .hero{grid-template-columns:1fr} }
     </style>
   </head>
   <body>
-    <div class="wrap" id="app"></div>
-    <a class="wa-fab" href="https://wa.me/5532991413852" target="_blank" rel="noopener">WA</a>
+    <header>
+      <div class="bar">
+        <span class="logoDot"></span>
+        <div class="brand">Data Tech RailSight</div>
+        <nav>
+          <a class="chip" href="#solucao">Solução</a>
+          <a class="chip" href="#beneficios">Benefícios</a>
+          <a class="chip" href="#contato">Contato</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="app"></main>
+
+    <!-- WhatsApp flutuante -->
+    <a href="https://wa.me/5532991413852" target="_blank" rel="noopener noreferrer" class="fab">WA</a>
+
     <script type="module" src="/main.jsx"></script>
   </body>
 </html>

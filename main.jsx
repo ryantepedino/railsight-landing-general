@@ -1,309 +1,326 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { createRoot } from "react-dom/client";
+import React, {useEffect, useMemo, useState} from "react";
+console.log("API Base:", import.meta.env.VITE_API_BASE);
+console.log("PROC Base:", import.meta.env.VITE_PROC_BASE);
+
+import {createRoot} from "react-dom/client";
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  CartesianGrid, ReferenceLine, Legend
+  LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, ReferenceLine
 } from "recharts";
 
-const API_BASE = import.meta.env.VITE_API_BASE?.replace(/\/+$/,"");
-const PY_API   = import.meta.env.VITE_PY_API?.replace(/\/+$/,""); // opcional
-const MAX_RETRY_MS = [1500, 3000, 5000, 8000];
+// ------------- Config & helpers -------------
+const API_BASE  = import.meta.env.VITE_API_BASE  || "https://railsight-api.onrender.com";
+const PROC_BASE = import.meta.env.VITE_PROC_BASE || "https://railsight-proc-python.onrender.com";
 
-function movingAverage(arr, span = 5) {
-  if (!Array.isArray(arr) || span <= 1) return arr;
-  const out = new Array(arr.length);
-  const half = Math.floor(span / 2);
-  for (let i = 0; i < arr.length; i++) {
-    let s = 0, c = 0;
-    for (let k = -half; k <= half; k++) {
-      const j = i + k;
-      if (j >= 0 && j < arr.length) { s += arr[j]; c++; }
-    }
-    out[i] = s / c;
-  }
-  return out;
+const fmtKm = (km) => km.toFixed(3).replace(".", ",");
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function csvDownload(filename, rows) {
+  const esc = (v) => (typeof v === "string" && v.includes(",")) ? `"${v.replace(/"/g,'""')}"` : v;
+  const csv = rows.map(r => r.map(esc).join(",")).join("\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
 }
-const gridColor  = "rgba(255,255,255,.09)";
-const axisColor  = "rgba(255,255,255,.78)";
-const commonGrid = <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />;
-const commonTooltip = (labelFormatter) => ({
-  contentStyle: { background: "#0B1020", border: "1px solid #1F2A44" },
-  labelStyle:   { color: "#9FC1FF" },
-  itemStyle:    { color: "#fff" },
-  labelFormatter,
-});
-function niceDomain([min, max], pad = 0, step = 1) {
-  if (!isFinite(min) || !isFinite(max)) return ["auto","auto"];
-  const lo = Math.floor((min - pad) / step) * step;
-  const hi = Math.ceil((max + pad) / step) * step;
-  return [lo, hi];
-}
-function autoTicksKm(data, maxTicks = 8) {
-  if (!data?.length) return undefined;
-  const xs = data.map(d => d.x);
-  const min = Math.min(...xs), max = Math.max(...xs);
-  const span = max - min; if (span <= 0) return [min];
-  const candidates = [0.001, 0.002, 0.005, 0.01, 0.02];
-  let step = candidates[0];
-  for (const c of candidates) { if (span / c <= maxTicks) { step = c; break; } }
-  const ticks = [];
-  let t = Math.ceil(min / step) * step;
-  for (; t <= max + 1e-9; t += step) ticks.push(+t.toFixed(3));
-  return ticks;
-}
-async function fetchJsonWithRetry(url) {
-  let lastErr = null;
-  for (let i = 0; i < MAX_RETRY_MS.length; i++) {
+
+// ------------- API -------------
+async function getSegment(window_m=300, km_ini=333800) {
+  // Retry com backoff p/ acordar Render
+  const url = `${API_BASE}/segment?window_m=${window_m}&km_ini=${km_ini}&step_m=1`;
+  let last;
+  for (const delay of [0, 1500, 3000, 5000, 8000]) {
     try {
-      const r = await fetch(url, { cache: "no-store" });
+      if (delay) await sleep(delay);
+      const r = await fetch(url, {cache:"no-store"});
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return await r.json();
-    } catch (err) {
-      lastErr = err;
-      await new Promise(res => setTimeout(res, MAX_RETRY_MS[i]));
-    }
+    } catch (err) { last = err; }
   }
-  throw lastErr ?? new Error("Falha ao buscar dados");
-}
-async function processInPython(segment) {
-  if (!PY_API) return null;
-  try {
-    const r = await fetch(`${PY_API}/process`, {
-      method: "POST",
-      headers: { "Content-Type":"application/json" },
-      body: JSON.stringify(segment),
-    });
-    if (!r.ok) throw new Error(`PY HTTP ${r.status}`);
-    return await r.json();
-  } catch {
-    return null;
-  }
+  throw last || new Error("Falhou sem erro.");
 }
 
-function CurvatureChart({ data, domain, refLinesKm=[] }) {
+async function smoothPython(arr, window=11, poly=2) {
+  try {
+    const r = await fetch(`${PROC_BASE}/process`, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({data:arr, window, poly})
+    });
+    if (!r.ok) throw new Error(`Smooth HTTP ${r.status}`);
+    const js = await r.json();
+    return js.smoothed ?? arr;
+  } catch (_) { return arr; }
+}
+
+// ------------- UI Components -------------
+function Hero({onGo}) {
   return (
-    <div className="card">
-      <h3>Curvatura (°)</h3>
-      <ResponsiveContainer width="100%" height={260}>
-        <LineChart data={data} margin={{ top: 5, right: 16, left: 0, bottom: 8 }}>
-          {commonGrid}
-          <XAxis dataKey="x" stroke={axisColor} tick={{ fill: axisColor }} ticks={autoTicksKm(data)} />
-          <YAxis stroke={axisColor} tick={{ fill: axisColor }} domain={domain}
-            tickFormatter={(v)=>`${v.toFixed(1)}°`} />
-          <Tooltip {...commonTooltip((x)=>`${x.toFixed(3)} km`)} />
-          <Legend />
-          {refLinesKm.map((km,i)=>(
-            <ReferenceLine key={i} x={km} stroke="#ff7ab6" strokeDasharray="3 3" />
+    <section className="hero" id="topo">
+      <div className="card">
+        <div className="kicker"><span className="logoDot"></span> RailSight — Inteligência em Monitoramento Ferroviário</div>
+        <h1>Segurança, confiabilidade e redução de custos em qualquer operação ferroviária — <b>carga ou passageiros</b>.</h1>
+        <div className="muted">Painéis interativos: Curvatura, Superelevação (Crosslevel) e Bitola, com navegação por janela (200–500&nbsp;m) e referência de km.</div>
+        <div style={{display:"flex",gap:10,marginTop:14}}>
+          <button id="go-demo" className="btn primary" onClick={onGo}>Entrar na Demo</button>
+          <a className="btn ghost" href="#beneficios">Saiba mais</a>
+        </div>
+      </div>
+      <div className="card">
+        <div className="kicker"><span className="logoDot"></span> O que você vai ver</div>
+        <ul className="muted" style={{marginTop:8}}>
+          <li>Curvatura 0 = tangente; picos = curva (“quebra-molas”).</li>
+          <li>Navegação: <span className="kbd">−100 m</span> / <span className="kbd">+100 m</span> e janela <span className="kbd">200–500 m</span>.</li>
+          <li>Exportação: <span className="kbd">CSV</span> e <span className="kbd">PDF</span>.</li>
+          <li>Suavização (Savitzky–Golay) via microserviço Python.</li>
+        </ul>
+        <div className="msg" style={{marginTop:12}}>
+          <span className="logoDot" style={{background:"#f59e0b"}}></span>
+          <div>
+            <b>Preparando demonstração…</b><br/>
+            Na primeira visita a API pode demorar ~60s (free tier). Obrigado por aguardar!
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PanelHeader({
+  km_ini, setKmIni,
+  windowM, setWindowM,
+  onReload,
+  onExportCSV, onPrintPDF,
+  smooth, setSmooth
+}) {
+  return (
+    <div className="demoHead">
+      <div className="controls">
+        <span className="chip">API base: <b>{API_BASE}</b></span>
+        <span className="chip">Python proc: <b>{PROC_BASE}</b></span>
+      </div>
+
+      <div className="controls">
+        <div className="seg" title="Navegar janela">
+          <button onClick={()=>setKmIni(km_ini-100)}>−100 m</button>
+          <button onClick={()=>setKmIni(km_ini+100)}>+100 m</button>
+        </div>
+
+        <div className="seg" title="Tamanho da janela">
+          {[200,300,500].map(m=>(
+            <button key={m}
+              className={m===windowM ? "active":""}
+              onClick={()=>setWindowM(m)}
+            >{m} m</button>
           ))}
-          <Line type="monotone" dataKey="y" name="Curvatura" stroke="#A78BFA"
-                strokeWidth={2.2} dot={false} isAnimationActive={false}/>
+        </div>
+
+        <label className="chip" style={{display:"flex",alignItems:"center",gap:8}}>
+          <input type="checkbox" checked={smooth} onChange={e=>setSmooth(e.target.checked)} />
+          Suavizar (Python)
+        </label>
+
+        <button className="btn" onClick={onExportCSV}>Exportar CSV</button>
+        <button className="btn" onClick={onPrintPDF}>Salvar em PDF</button>
+        <button className="btn" onClick={onReload} title="Recarregar agora">↻</button>
+      </div>
+    </div>
+  );
+}
+
+function ChartBox({title, unit, data, yDomain, lineColor="#a78bfa"}) {
+  return (
+    <div className="chartCard">
+      <div className="muted" style={{margin:"4px 6px 6px 6px"}}><b>{title}</b> {unit ? `(${unit})` : ""}</div>
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={data} margin={{top:8,right:16,left:0,bottom:12}}>
+          <CartesianGrid stroke="#263154" strokeDasharray="3 3" />
+          <XAxis
+            dataKey="x"
+            tick={{fill:"#9fb0d3"}}
+            tickFormatter={(v)=>v.toFixed(0)}
+            label={{value:"Distância na janela (m)", position:"insideBottom", offset:-4, fill:"#9fb0d3"}}
+          />
+          <YAxis
+            domain={yDomain}
+            tick={{fill:"#9fb0d3"}}
+            tickFormatter={(v)=>v.toFixed( unit==="°" ? 1 : 0 )}
+            width={50}
+            label={{value: unit || "", angle:-90, position:"insideLeft", fill:"#9fb0d3"}}
+          />
+          <Tooltip
+            contentStyle={{background:"#10172a",border:"1px solid #263154",borderRadius:10,color:"#e7ecff"}}
+            formatter={(value)=> (unit==="°" ? value.toFixed(2) : value.toFixed(1)) + (unit || "")}
+            labelFormatter={(l)=>`x ${l} m`}
+          />
+          <ReferenceLine y={0} stroke="#334155" />
+          <Line type="monotone" dataKey="y" stroke={lineColor} strokeWidth={2.2} dot={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>
   );
 }
-function CrosslevelChart({ data, domain, refLinesKm=[] }) {
+
+function Demo() {
+  const [kmIni, setKmIni] = useState(333800);
+  const [windowM, setWindowM] = useState(300);
+  const [loading, setLoading] = useState(false);
+  const [raw, setRaw] = useState(null);
+  const [smoothOn, setSmooth] = useState(true);
+  const [error, setError] = useState("");
+
+  const distance = useMemo(()=> raw?.series?.curvature?.map((_,i)=> i), [raw]);
+
+  const baseSeries = useMemo(()=>{
+    if (!raw) return null;
+    const {curvature=[], crosslevel=[], gauge=[]} = raw.series || {};
+    return {curvature, crosslevel, gauge};
+  }, [raw]);
+
+  const [series, setSeries] = useState({curvature:[], crosslevel:[], gauge:[]});
+
+  // carregar dados
+  async function loadData() {
+    setLoading(true); setError("");
+    try {
+      const js = await getSegment(windowM, kmIni);
+      setRaw(js);
+    } catch (e) {
+      setError("Falha ao carregar dados. Tente novamente em alguns segundos.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // aplicar suavização quando liga/desliga ou quando chegam dados novos
+  useEffect(()=>{
+    let cancel=false;
+    (async ()=>{
+      if (!baseSeries) return;
+      if (!smoothOn) { setSeries(baseSeries); return; }
+      // suaviza crosslevel e bitola; curvatura geralmente já é derivada
+      const [sl, sg] = await Promise.all([
+        smoothPython(baseSeries.crosslevel, 11, 2),
+        smoothPython(baseSeries.gauge,     11, 2),
+      ]);
+      if (!cancel) {
+        setSeries({
+          curvature: baseSeries.curvature,
+          crosslevel: sl,
+          gauge: sg
+        });
+      }
+    })();
+    return ()=>{ cancel=true; };
+  }, [baseSeries, smoothOn]);
+
+  useEffect(()=>{ loadData(); }, [kmIni, windowM]);
+
+  const chartData = (arr) => (distance||[]).map((x,i)=>({x, y: arr?.[i] ?? null}));
+
+  function exportCSV() {
+    if (!raw) return;
+    const rows = [["x_m","curvature_deg","crosslevel_mm","gauge_mm"]];
+    const len = Math.max(series.curvature?.length||0, series.crosslevel?.length||0, series.gauge?.length||0);
+    for (let i=0;i<len;i++){
+      rows.push([
+        i,
+        series.curvature?.[i] ?? "",
+        series.crosslevel?.[i] ?? "",
+        series.gauge?.[i] ?? ""
+      ]);
+    }
+    const label = `railsight_${windowM}m_km${fmtKm(kmIni/1000)}${smoothOn ? "_smooth" : ""}.csv`;
+    csvDownload(label, rows);
+  }
+
+  function printPDF() { window.print(); }
+
   return (
-    <div className="card">
-      <h3>Crosslevel (mm)</h3>
-      <ResponsiveContainer width="100%" height={260}>
-        <LineChart data={data} margin={{ top: 5, right: 16, left: 0, bottom: 8 }}>
-          {commonGrid}
-          <XAxis dataKey="x" stroke={axisColor} tick={{ fill: axisColor }} ticks={autoTicksKm(data)} />
-          <YAxis stroke={axisColor} tick={{ fill: axisColor }} domain={domain}
-            tickFormatter={(v)=>`${v} mm`} />
-          <Tooltip {...commonTooltip((x)=>`${x.toFixed(3)} km`)} />
-          <Legend />
-          {refLinesKm.map((km,i)=>(
-            <ReferenceLine key={i} x={km} stroke="#ff7ab6" strokeDasharray="3 3" />
-          ))}
-          <Line type="monotone" dataKey="y" name="Crosslevel" stroke="#60A5FA"
-                strokeWidth={2.2} dot={false} isAnimationActive={false}/>
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
+    <section id="demo">
+      <div className="card">
+        <PanelHeader
+          km_ini={kmIni} setKmIni={setKmIni}
+          windowM={windowM} setWindowM={setWindowM}
+          onReload={loadData}
+          onExportCSV={exportCSV}
+          onPrintPDF={printPDF}
+          smooth={smoothOn} setSmooth={setSmooth}
+        />
+        {error && <div className="msg" style={{marginTop:10}}><span className="logoDot" style={{background:"#ef4444"}}></span><div>{error}</div></div>}
+        {loading && !raw && <div className="msg" style={{marginTop:10}}><span className="logoDot" style={{background:"#f59e0b"}}></span><div>Carregando dados…</div></div>}
+
+        {raw && (
+          <>
+            <div className="muted" style={{marginBottom:8}}>
+              <b>Janela:</b> {windowM} m &nbsp;•&nbsp; <b>KM inicial (ref):</b> {fmtKm(kmIni/1000)}
+            </div>
+
+            <ChartBox
+              title="Curvatura" unit="°"
+              data={chartData(series.curvature)} yDomain={[-0.5, 3.1]} lineColor="#a78bfa"
+            />
+            <ChartBox
+              title="Crosslevel" unit="mm"
+              data={chartData(series.crosslevel)} yDomain={[-5, 15]} lineColor="#60a5fa"
+            />
+            <ChartBox
+              title="Bitola" unit="mm"
+              data={chartData(series.gauge)} yDomain={[1600-10, 1625+10]} lineColor="#34d399"
+            />
+          </>
+        )}
+      </div>
+    </section>
   );
 }
-function GaugeChart({ data, domain, refLinesKm=[] }) {
+
+function Sections(){ 
   return (
-    <div className="card">
-      <h3>Bitola (mm)</h3>
-      <ResponsiveContainer width="100%" height={260}>
-        <LineChart data={data} margin={{ top: 5, right: 16, left: 0, bottom: 8 }}>
-          {commonGrid}
-          <XAxis dataKey="x" stroke={axisColor} tick={{ fill: axisColor }} ticks={autoTicksKm(data)} />
-          <YAxis stroke={axisColor} tick={{ fill: axisColor }} domain={domain}
-            tickCount={8} tickFormatter={(v)=>`${v} mm`} />
-          <Tooltip {...commonTooltip((x)=>`${x.toFixed(3)} km`)} />
-          <Legend />
-          {refLinesKm.map((km,i)=>(
-            <ReferenceLine key={i} x={km} stroke="#ff7ab6" strokeDasharray="3 3" />
-          ))}
-          <Line type="monotone" dataKey="y" name="Bitola" stroke="#F87171"
-                strokeWidth={2.4} dot={false} isAnimationActive={false}/>
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
+    <>
+      <section id="solucao" className="grid3">
+        <div className="card">
+          <div className="kicker"><span className="logoDot"></span> Solução</div>
+          Transformamos dados de via em decisões: gráficos técnicos, janelas curtas e leitura intuitiva para priorizar manutenção.
+        </div>
+        <div className="card">
+          <div className="kicker"><span className="logoDot"></span> Tecnologia</div>
+          Frontend PWA; API escalável; microserviço Python para pré-processamento (suavização Savitzky–Golay).
+        </div>
+        <div className="card">
+          <div className="kicker"><span className="logoDot"></span> Aplicação Geral</div>
+          Carga e passageiros; núcleo é a geometria da via; mensagem adapta ao negócio.
+        </div>
+      </section>
+
+      <section id="beneficios" className="card" style={{marginTop:12}}>
+        <div className="kicker"><span className="logoDot"></span> Benefícios</div>
+        ✓ Segurança operacional • ✓ Disponibilidade da via • ✓ Redução de custos • ✓ Acesso web e celular • ✓ Escalabilidade e integração
+      </section>
+
+      <Demo/>
+
+      <footer id="contato">
+        RailSight é uma solução da <b>Data Tech — Soluções em I.A.</b> • contato@datatech.com • WhatsApp: (32) 99141-3852
+      </footer>
+    </>
   );
 }
 
 function App(){
-  const [segment, setSegment] = useState(null);
-  const [status, setStatus]   = useState("idle");
-  const [msg, setMsg]         = useState("");
-  const [win, setWin]         = useState(300);
-  const [kmIniOverride, setKmIniOverride] = useState(null);
-  const refKm = useMemo(()=>[66.940, 66.945],[]);
-
   useEffect(()=>{
-    (async()=>{
-      setStatus("loading"); setMsg("Carregando…");
-      try{
-        const url = `${API_BASE}/segment?window=${win}`;
-        const seg = await fetchJsonWithRetry(url);
-        if(!seg?.series) throw new Error("Segmento inválido");
-        const segUse = {
-          ...seg,
-          km_ini: kmIniOverride ?? seg.km_ini,
-          window_m: seg.window_m ?? win,
-          step_m: seg.step_m ?? 1
-        };
-        const py = await processInPython(segUse);
-        setSegment(py?.series ? {...segUse, series: py.series, meta: py.meta} : segUse);
-        setStatus("ok"); setMsg("");
-      }catch(err){
-        setStatus("err"); setMsg(String(err?.message || err));
-      }
-    })();
-  },[win, kmIniOverride]);
-
-  const xKm = useMemo(()=>{
-    if(!segment) return [];
-    const n = Object.values(segment.series)[0]?.length ?? 0;
-    const km0 = (segment.km_ini ?? 333800)/1000;
-    return Array.from({length:n}, (_,i)=> +(km0 + i/1000).toFixed(3));
-  },[segment]);
-
-  const dataCurv = useMemo(()=>{
-    if(!segment?.series?.curvature) return [];
-    const ys = segment.series.curvature;
-    return xKm.map((x,i)=>({ x, y:+((ys[i] ?? 0)).toFixed(3) }));
-  },[segment, xKm]);
-
-  const dataCross = useMemo(()=>{
-    if(!segment?.series?.crosslevel) return [];
-    const ys = movingAverage(segment.series.crosslevel, 5);
-    return xKm.map((x,i)=>({ x, y:+((ys[i] ?? 0)).toFixed(2) }));
-  },[segment, xKm]);
-
-  const dataGauge = useMemo(()=>{
-    if(!segment?.series?.gauge) return [];
-    const ys = movingAverage(segment.series.gauge, 3);
-    return xKm.map((x,i)=>({ x, y:+((ys[i] ?? 0)).toFixed(1) }));
-  },[segment, xKm]);
-
-  const domCurv = useMemo(()=>{
-    if(!dataCurv.length) return ["auto","auto"];
-    const vals = dataCurv.map(d=>d.y); return niceDomain(
-      [Math.min(...vals), Math.max(...vals)], .2, .5
-    );
-  },[dataCurv]);
-
-  const domCross = useMemo(()=>{
-    if(!dataCross.length) return ["auto","auto"];
-    const vals = dataCross.map(d=>d.y);
-    const auto = niceDomain([Math.min(...vals), Math.max(...vals)], 1, 1);
-    return [Math.min(-5, auto[0]), Math.max(15, auto[1])];
-  },[dataCross]);
-
-  const domGauge = useMemo(()=>{
-    if(!dataGauge.length) return [1600,1635];
-    const vals = dataGauge.map(d=>d.y);
-    const auto = niceDomain([Math.min(...vals), Math.max(...vals)], 2, 1);
-    return [Math.min(1600, auto[0]), Math.max(1635, auto[1])];
-  },[dataGauge]);
-
-  function exportCSV(){
-    if(!segment) return;
-    const rows = ["km,y_curvature,y_crosslevel,y_gauge"];
-    const n = xKm.length;
-    for(let i=0;i<n;i++){
-      rows.push([
-        xKm[i],
-        dataCurv[i]?.y ?? "",
-        dataCross[i]?.y ?? "",
-        dataGauge[i]?.y ?? ""
-      ].join(","));
-    }
-    const blob = new Blob([rows.join("\n")], {type:"text/csv"});
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `railsight_segment_${segment.km_ini}_${segment.window_m}.csv`;
-    a.click(); URL.revokeObjectURL(a.href);
-  }
-  function printPDF(){
-    window.print();
-  }
-
+    // scroll suave ao clicar Entrar na Demo
+    const btn = document.getElementById("go-demo");
+    const go = (e)=>{ e?.preventDefault?.(); document.getElementById("demo")?.scrollIntoView({behavior:"smooth"}); };
+    if (btn) btn.addEventListener("click", go);
+    return ()=> btn && btn.removeEventListener("click", go);
+  },[]);
   return (
-    <div>
-      <div className="bar">
-        <span className="logoDot"></span>
-        <b>Data Tech RailSight</b>
-        <button className="btn right" onClick={()=>document.getElementById("demo")?.scrollIntoView({behavior:"smooth"})}>
-          Entrar na Demo
-        </button>
-        <a className="btn primary" href="https://wa.me/5532991413852" target="_blank" rel="noopener">Agendar no WhatsApp</a>
-      </div>
-
-      <div className="hero">
-        <div>
-          <h1>RailSight — Inteligência em Monitoramento Ferroviário</h1>
-          <p className="muted">Reduza falhas, aumente a segurança e otimize custos em qualquer operação — carga ou passageiros.</p>
-          <div className="call">
-            <button className="btn primary" onClick={()=>document.getElementById("demo")?.scrollIntoView({behavior:"smooth"})}>
-              Entrar na Demo
-            </button>
-            <a className="btn ghost" href="https://wa.me/5532991413852" target="_blank" rel="noopener">Agendar no WhatsApp</a>
-          </div>
-        </div>
-        <div className="note">
-          <b>Preparando demonstração…</b><br/>
-          Na primeira visita a API pode demorar ~60s (free tier). Obrigado por aguardar!
-        </div>
-      </div>
-
-      <div id="demo" className="card">
-        <div className="row" style={{marginBottom:6}}>
-          <b className="muted">API base:</b>
-          <code style={{color:"#9FC1FF"}}>{API_BASE}</code>
-          {PY_API && <>
-            <b className="muted" style={{marginLeft:12}}>Python proc:</b>
-            <code style={{color:"#9FC1FF"}}>{PY_API}</code>
-          </>}
-          <span className="right segCtrls">
-            <span className="muted">Janela:</span>
-            {[200,300,500].map(v=>(
-              <span key={v} className={`chip ${win===v?"sel":""}`} onClick={()=>setWin(v)}>{v} m</span>
-            ))}
-            <button className="btn" onClick={exportCSV}>Exportar CSV</button>
-            <button className="btn ghost" onClick={printPDF}>Salvar em PDF</button>
-          </span>
-        </div>
-
-        {status==="loading" && <div className="card" style={{borderStyle:"dashed"}}>{msg || "Carregando…"}</div>}
-        {status==="err" && <div className="card" style={{borderColor:"#DA4453", color:"#FFCED3"}}>Erro: {msg}</div>}
-
-        {status==="ok" && (
-          <div className="grid">
-            <CurvatureChart data={dataCurv} domain={domCurv} refLinesKm={[66.940,66.945]} />
-            <CrosslevelChart data={dataCross} domain={domCross} refLinesKm={[66.940,66.945]} />
-            <GaugeChart     data={dataGauge} domain={domGauge} refLinesKm={[66.940,66.945]} />
-          </div>
-        )}
-      </div>
-    </div>
+    <>
+      <Hero onGo={()=>document.getElementById("demo")?.scrollIntoView({behavior:"smooth"})}/>
+      <Sections/>
+    </>
   );
 }
 
-createRoot(document.getElementById("app")).render(<App />);
+const root = createRoot(document.getElementById("app"));
+root.render(<App />);
