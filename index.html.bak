@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RailSight — Inteligência em Monitoramento Ferroviário</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <style>
+      :root {
+        --bg: #0b0e1a;
+        --panel: #12162a;
+        --muted: #8ea1c0;
+        --text: #eaf0ff;
+        --brand: #7c3aed; /* roxo */
+        --brand-2: #22c55e; /* verde CTA */
+        --line: #1d2442;
+      }
+      html, body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Helvetica Neue",
+          "Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol";
+      }
+      .container { max-width: 1100px; margin: 0 auto; padding: 24px 16px 56px; }
+      .topbar { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:10px 0 8px; }
+      .brand { display:flex; align-items:center; gap:10px; font-weight:700; }
+      .logoDot { width:14px; height:14px; border-radius:50%; background: var(--brand); box-shadow:0 0 16px var(--brand); }
+      .topbtns { display:flex; gap:10px; flex-wrap:wrap; }
+      .btn {
+        appearance:none; border:0; padding:10px 14px; border-radius:10px; cursor:pointer;
+        background:#1a2040; color:#cfe0ff; font-weight:600; transition: .2s ease transform, .2s ease opacity;
+      }
+      .btn:hover { transform: translateY(-1px); opacity:.95; }
+      .btn.primary { background: var(--brand); color: white; }
+      .btn.wa { background: var(--brand-2); color: #02130b; }
+
+      .hero {
+        display:grid; grid-template-columns:1.2fr .8fr; gap:18px; align-items:start;
+        margin-top:18px; margin-bottom:18px;
+      }
+      .card { background: linear-gradient(180deg, #131735, #0f1330); border:1px solid var(--line);
+              border-radius:16px; padding:18px; }
+      .muted { color: var(--muted); }
+
+      .controls { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:12px 0 8px; }
+      .segTitle { margin:0 0 8px; font-size:14px; color:#bcd0ff }
+      .chip { padding:6px 10px; border-radius:999px; border:1px solid var(--line); background:#0e1330; color:#cfe0ff; cursor:pointer; }
+      .chip.active { background: var(--brand); border-color: transparent; color:white; }
+      .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+
+      .chartCard { background:#0f1330; border:1px solid var(--line); border-radius:16px; padding:16px 10px 8px; }
+      .chartTitle { margin:0 0 8px; font-size:14px; color:#bcd0ff }
+      .footer space { height: 60px; display:block }
+
+      /* flutuante WhatsApp */
+      .fab-wa {
+        position: fixed; right: 18px; bottom: 18px; width: 56px; height: 56px; border-radius: 999px; border: 0;
+        background: #25d366; color: #032d1a; font-size: 22px; font-weight: 800; cursor: pointer;
+        box-shadow: 0 10px 25px rgba(37,211,102,.35); display:flex; align-items:center; justify-content:center;
+      }
+      .fab-wa:hover { transform: translateY(-1px); }
+
+      @media (max-width: 940px) {
+        .hero{ grid-template-columns:1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <!-- Botão WhatsApp flutuante -->
+    <a class="fab-wa" href="https://wa.me/5532991413852" target="_blank" rel="noopener noreferrer" aria-label="Falar no WhatsApp">✆</a>
+
+    <script type="module" src="/main.jsx"></script>
+  </body>
+</html>

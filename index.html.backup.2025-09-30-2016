@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Data Tech RailSight — Monitoramento Ferroviário</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <style>
+      :root{
+        --bg:#0e1117; --panel:#151a23; --muted:#8892a6; --text:#e6edf3;
+        --brand:#7c3aed; --brand-2:#a78bfa; --accent:#22d3ee; --danger:#ef4444;
+        --grid:#243042;
+      }
+      *{box-sizing:border-box}
+      html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:400 15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
+      .wrap{max-width:1180px;margin:0 auto;padding:24px}
+      header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+      .brand{display:flex;gap:10px;align-items:center}
+      .dot{width:8px;height:8px;border-radius:50%;background:var(--brand)}
+      .nav{display:flex;gap:10px}
+      .pill{background:var(--panel);border:1px solid #1f2633;border-radius:999px;padding:8px 14px;color:var(--muted)}
+      .hero{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;margin-bottom:16px}
+      .card{background:var(--panel);border:1px solid #1f2633;border-radius:14px;padding:18px}
+      .h1{font-weight:700;font-size:28px;letter-spacing:.2px;margin:0 0 8px}
+      .lead{color:var(--muted);margin:0 0 14px}
+      .btns{display:flex;gap:10px;margin-top:6px}
+      .btn{border:0;border-radius:10px;padding:10px 14px;cursor:pointer}
+      .btn.primary{background:var(--brand);color:#fff}
+      .btn.ghost{background:transparent;border:1px solid #273043;color:#d1d7e3}
+      .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px}
+      .kpi h4{margin:0 0 6px;font-size:14px;color:#aab7cf}
+      .muted{color:var(--muted)}
+      .chart-card{margin-top:12px}
+      .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px}
+      .seg{display:flex;gap:6px;align-items:center}
+      .seg .chip{padding:6px 10px;border-radius:999px;border:1px solid #283244;background:#111827;color:#cbd5e1;cursor:pointer}
+      .seg .chip.active{background:var(--brand);color:#fff;border-color:transparent}
+      .switch{display:flex;gap:8px;align-items:center}
+      .legend-box{min-width:180px}
+      .footer{margin:18px 0 8px;color:#9aa8bf;text-align:center}
+      .note{font-size:13px;color:#9fb0cc}
+      .spacer{height:6px}
+      .sep{height:1px;background:#1f2633;margin:10px 0}
+      .danger{color:var(--danger)}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand"><span class="dot"></span><strong>Data Tech RailSight</strong></div>
+        <nav class="nav">
+          <div class="pill">Solução</div>
+          <div class="pill">Benefícios</div>
+          <div class="pill">Contato</div>
+        </nav>
+      </header>
+
+      <section class="hero">
+        <div class="card">
+          <h1 class="h1">Segurança, confiabilidade e redução de custos — <br/>carga ou passageiros.</h1>
+          <p class="lead">Painéis interativos em <b>km</b>, sobreposição por <b>campanha</b>, exportação e opção de <b>suavização Python</b> (Savitzky–Golay).</p>
+          <div class="btns">
+            <button class="btn primary" onclick="document.getElementById('app').scrollIntoView({behavior:'smooth'})">Entrar na Demo</button>
+            <a class="btn ghost" href="https://wa.me/5532991413852" target="_blank" rel="noopener">Agendar no WhatsApp</a>
+          </div>
+        </div>
+        <div class="card">
+          <h4 style="margin:0 0 10px;color:#aab7cf">O que você vai ver</h4>
+          <ul class="muted" style="margin:0 0 8px 18px">
+            <li>Eixo-X em km (referência absoluta).</li>
+            <li>Curvatura (1/m) com <b>múltiplas campanhas</b>.</li>
+            <li>Linhas verticais de inspeção (marcos críticos).</li>
+            <li>Exportação: CSV e PDF.</li>
+          </ul>
+          <div class="note">API base: <span id="apiBaseTxt"></span> — Python: <span id="pyBaseTxt"></span></div>
+        </div>
+      </section>
+
+      <section id="app" class="card chart-card">
+        <!-- React/JS vai montar aqui -->
+      </section>
+
+      <div class="footer">RailSight © Data Tech — Soluções em I.A. · contato@datatech.com · WhatsApp (32) 99141-3852</div>
+    </div>
+
+    <script type="module" src="/main.jsx"></script>
+    <script>
+      document.getElementById('apiBaseTxt').textContent = (window?.VITE_API_BASE || '') || (import.meta?.env?.VITE_API_BASE || '');
+      document.getElementById('pyBaseTxt').textContent  = (window?.VITE_PROC_BASE || '') || (import.meta?.env?.VITE_PROC_BASE || '');
+    </script>
+  </body>
+</html>

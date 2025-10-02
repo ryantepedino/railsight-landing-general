@@ -4,81 +4,50 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
-    <title>RailSight — Inteligência em Monitoramento Ferroviário</title>
-    <link rel="icon" type="image/png" href="/favicon.png" />
+    <title>Data Tech RailSight — Monitoramento Ferroviário</title>
+    <meta
+      name="description"
+      content="Painéis em km com curvatura, sobreposição por campanha, suavização Python (Savitzky–Golay), exportação CSV/PDF."
+    />
+    <link rel="icon" href="/favicon.png" />
     <style>
-      :root{
-        --bg:#0b0f1a;--panel:#12172a;--panel2:#0f1426;--txt:#e7ecff;--muted:#9fb0d3;
-        --brand:#7c3aed;--brand2:#a78bfa;--ok:#22c55e;--warn:#f59e0b;--danger:#ef4444;
-        --grid:#2a3353;--chip:#1b2340;--outline:#243055;
+      /* Reset mínimo e tipografia */
+      :root {
+        --bg: #0b0f16;
+        --panel: #0f1420;
+        --stroke: #182235;
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --brand: #7c3aed;
+        --brand-2: #6d28d9;
       }
-      *{box-sizing:border-box}
-      html,body{height:100%}
-      body{
-        margin:0;background:#0b1220;color:var(--txt);
-        font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif; line-height:1.45;
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        font-family: Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif;
       }
-      a{color:var(--brand2);text-decoration:none}
-      header{
-        position:sticky;top:0;z-index:20;
-        background:linear-gradient(180deg,#0b1220 0%, rgba(11,18,32,.85) 100%);
-        border-bottom:1px solid var(--outline);
-        backdrop-filter: blur(6px);
+      /* Melhor legibilidade de links e botões por padrão */
+      a { color: var(--text); }
+      button {
+        font: inherit;
+        cursor: pointer;
       }
-      .bar{max-width:1180px;margin:0 auto;display:flex;align-items:center;gap:16px;padding:12px 16px}
-      .logoDot{width:10px;height:10px;border-radius:50%;background:var(--brand2)}
-      .brand{font-weight:700}
-      nav{margin-left:auto;display:flex;gap:16px}
-      .chip{background:var(--chip);border:1px solid var(--outline);color:var(--txt);padding:8px 12px;border-radius:12px}
-      .btn{padding:10px 14px;border-radius:10px;border:1px solid var(--outline);background:var(--panel2);color:var(--txt);cursor:pointer}
-      .btn.primary{background:linear-gradient(180deg,var(--brand),#6d28d9);border-color:#5130c8}
-      .btn.ghost{background:transparent;border-color:var(--outline)}
-      main{max-width:1180px;margin:0 auto;padding:16px}
-      .hero{
-        display:grid;grid-template-columns:1.1fr .9fr;gap:20px;align-items:stretch;margin:16px 0 24px 0
+      /* Melhor print do gráfico */
+      @media print {
+        body { background: #fff; color: #111; }
       }
-      .card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--outline);border-radius:16px;padding:22px}
-      .kicker{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;margin-bottom:6px}
-      h1{margin:0 0 10px 0;font-size:32px}
-      .muted{color:var(--muted)}
-      .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:10px}
-      .demoHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap}
-      .controls{display:flex;gap:8px;flex-wrap:wrap}
-      .seg{display:flex;gap:6px;background:var(--chip);border:1px solid var(--outline);padding:6px;border-radius:999px}
-      .seg button{background:transparent;border:1px solid transparent;color:var(--txt);padding:6px 10px;border-radius:999px;cursor:pointer}
-      .seg button.active{background:var(--brand);border-color:#5b21b6}
-      .kbd{font-size:12px;color:var(--muted)}
-      .msg{display:flex;gap:10px;align-items:flex-start;background:#0f1a33;border:1px dashed var(--outline);padding:12px;border-radius:12px;color:#c7d2fe}
-      .chartCard{background:var(--panel);border:1px solid var(--outline);border-radius:16px;padding:12px;margin:8px 0}
-      footer{max-width:1180px;margin:24px auto 60px auto;color:var(--muted);font-size:14px;padding:0 16px}
-      .fab{
-        position:fixed;right:16px;bottom:18px;background:#22c55e;color:white;
-        width:56px;height:56px;border-radius:50%;display:grid;place-items:center;
-        font-weight:700;box-shadow:0 10px 24px rgba(34,197,94,.25);border:0;cursor:pointer
-      }
-      @media (max-width:980px){ .hero{grid-template-columns:1fr} }
     </style>
   </head>
   <body>
-    <header>
-      <div class="bar">
-        <span class="logoDot"></span>
-        <div class="brand">Data Tech RailSight</div>
-        <nav>
-          <a class="chip" href="#solucao">Solução</a>
-          <a class="chip" href="#beneficios">Benefícios</a>
-          <a class="chip" href="#contato">Contato</a>
-        </nav>
-      </div>
-    </header>
-
-    <main id="app"></main>
-
-    <!-- WhatsApp flutuante -->
-    <a href="https://wa.me/5532991413852" target="_blank" rel="noopener noreferrer" class="fab">WA</a>
-
-    <script type="module" src="/main.jsx"></script>
+    <div id="app"></div>
+    <!-- Vite entra aqui -->
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

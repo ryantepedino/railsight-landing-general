@@ -1,0 +1,343 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  ResponsiveContainer, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, ReferenceLine,
+} from "recharts";
+
+// ------------------------------------------------------------------
+// Config
+// ------------------------------------------------------------------
+const API_BASE  = import.meta.env.VITE_API_BASE;      // Railsight API
+const PROC_BASE = import.meta.env.VITE_PROC_BASE;     // Python Savitzky–Golay
+
+// km referência inicial e janela default
+const KM_REF_DEFAULT = 333800; // 333.800 km
+const WINDOW_DEFAULT = 300;    // 300 m
+
+// Marcadores verticais (em km) – ajuste conforme necessidade
+const MARKERS_KM = [333.950]; // exemplo: 333.950 km
+
+// Paleta de cores para várias campanhas
+const SERIES_COLORS = [
+  "#60a5fa", // azul
+  "#f59e0b", // laranja
+  "#34d399", // verde
+  "#f87171", // vermelho
+  "#a78bfa", // roxo
+  "#fb7185", // rosa
+  "#22d3ee", // ciano
+];
+
+// ------------------------------------------------------------------
+// Utils
+// ------------------------------------------------------------------
+function mToKmAbs(kmAbsInt) {
+  // entrada em metros inteiros (ex.: 333800) => “333.800”
+  return (kmAbsInt / 1000).toFixed(3);
+}
+
+function kmLabel(kmAbsInt) {
+  return `km ${mToKmAbs(kmAbsInt)}`;
+}
+
+function buildCsv(rows, header) {
+  const csv = [header.join(",")].concat(
+    rows.map(r => header.map(h => r[h]).join(","))
+  ).join("\n");
+  return csv;
+}
+
+async function sgSmoothPython(values, window=7, poly=2) {
+  // POST para microserviço Python
+  try {
+    const r = await fetch(`${PROC_BASE}/process`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: values, window, poly }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    return j.smoothed ?? values;
+  } catch (e) {
+    console.warn("Falha suavização Python → usando original:", e);
+    return values;
+  }
+}
+
+// ------------------------------------------------------------------
+// Tooltip Custom: mostra TODAS as campanhas no hover
+// ------------------------------------------------------------------
+function MultiTooltip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div style={{
+      background:"#0b1020", border:"1px solid #1f2633", borderRadius:10, padding:"10px 12px",
+      color:"#e6edf3"
+    }}>
+      <div style={{fontWeight:700, marginBottom:6}}>{label}</div>
+      {payload.map((p, i) => (
+        <div key={i} style={{display:"flex", gap:8, alignItems:"center"}}>
+          <span style={{display:"inline-block", width:10, height:10, borderRadius:3, background:p.color}}></span>
+          <span style={{opacity:.8}}>{p.name}:</span>
+          <b>{(p.value ?? "").toFixed ? p.value.toFixed(3) : p.value}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// App
+// ------------------------------------------------------------------
+function App() {
+  const [kmRef, setKmRef] = useState(KM_REF_DEFAULT);
+  const [windowM, setWindowM] = useState(WINDOW_DEFAULT);
+  const [autoY, setAutoY] = useState(false);
+  const [smooth, setSmooth] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [seriesByCampaign, setSeriesByCampaign] = useState([]); // [{label,color,data:[{km, y},...]}, ...]
+  const [error, setError] = useState("");
+
+  // busca dados da API Railsight
+  async function fetchSegment(km, win) {
+    setLoading(true);
+    setError("");
+
+    try {
+      const url = `${API_BASE}/segment?km_ini=${km}&window_m=${win}&step_m=1`;
+      const r = await fetch(url, { cache: "no-store" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+
+      // Estruturas esperadas:
+      // 1) payload multi: { km_ini, window_m, step_m, series_by_campaign: [{label, series:[...]}] }
+      // 2) payload simples: { km_ini, window_m, step_m, series: { curvature:[...], ... } }
+      const baseX = j.km_ini; // metros absolutos
+      const toData = (arr) => {
+        // arr é a série de y (curvature) ponto a ponto
+        return arr.map((y, idx) => ({
+          kmAbs: baseX + idx,        // metros
+          kmLabel: mToKmAbs(baseX + idx),
+          curvature: y,
+        }));
+      };
+
+      let campaigns = [];
+      if (Array.isArray(j.series_by_campaign)) {
+        // multi-campanha
+        campaigns = j.series_by_campaign.map((c, idx) => ({
+          label: c.label ?? `Campanha ${idx+1}`,
+          color: SERIES_COLORS[idx % SERIES_COLORS.length],
+          data: toData(c.series?.curvature ?? c.series ?? []),
+        }));
+      } else {
+        // simples: construir uma "campanha"
+        campaigns = [{
+          label: "Demo",
+          color: SERIES_COLORS[0],
+          data: toData(j.series?.curvature ?? j.series ?? []),
+        }];
+      }
+
+      // aplicar suavização Python se ligado
+      if (smooth && campaigns.length) {
+        const smoothed = await Promise.all(
+          campaigns.map(async c => {
+            const ys = c.data.map(d => d.curvature ?? 0);
+            const s  = await sgSmoothPython(ys, Math.min(11, Math.max(5, Math.floor(win/50))), 2);
+            const data = c.data.map((d, i) => ({...d, curvature: s[i]}));
+            return {...c, data};
+          })
+        );
+        setSeriesByCampaign(smoothed);
+      } else {
+        setSeriesByCampaign(campaigns);
+      }
+    } catch (e) {
+      console.error(e);
+      setError("Falha ao carregar dados da API.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchSegment(kmRef, windowM);
+  }, [kmRef, windowM, smooth]);
+
+  const yDomain = useMemo(
+    () => autoY
+      ? ["auto", "auto"]
+      : [0, 8], // escala fixa 0–8 (ajuste aqui para 0–10, se preferir)
+    [autoY]
+  );
+
+  // dados unidos por X (para Recharts ler várias séries)
+  const mergedData = useMemo(() => {
+    // cria um conjunto de X (kmLabel), depois junta campos y por "label"
+    const allPoints = {};
+    for (const c of seriesByCampaign) {
+      c.data.forEach(d => {
+        const key = d.kmLabel;
+        if (!allPoints[key]) allPoints[key] = { kmLabel: key, kmAbs: d.kmAbs };
+        allPoints[key][c.label] = d.curvature ?? null;
+      });
+    }
+    return Object.values(allPoints);
+  }, [seriesByCampaign]);
+
+  const labels = seriesByCampaign.map(c => c.label);
+
+  // exportação CSV (tabela larga: kmLabel + colunas por campanha)
+  function exportCsv() {
+    if (!mergedData.length) return;
+    const header = ["km", ...labels];
+    const rows = mergedData.map(row => {
+      const rec = { km: row.kmLabel };
+      labels.forEach(l => { rec[l] = row[l] ?? ""; });
+      return rec;
+    });
+    const csv = buildCsv(rows, header);
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `railsight_curvature_${mToKmAbs(kmRef)}_${windowM}m.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  }
+
+  // salvar em PDF: abre a caixa de impressão
+  function printPdf() {
+    window.print();
+  }
+
+  // navegação em janelas
+  function move(deltaM) {
+    setKmRef(v => v + deltaM);
+  }
+
+  // render
+  return (
+    <div>
+      <div className="controls">
+        <div className="seg">
+          <label className="switch">
+            <input type="checkbox" checked={smooth} onChange={e => setSmooth(e.target.checked)} />
+            <span>Suavizar (Python)</span>
+          </label>
+        </div>
+
+        <div className="seg">
+          <span className="muted">Janela:</span>
+          {[200,300,500].map(n => (
+            <button key={n}
+              className={`chip ${windowM===n?'active':''}`}
+              onClick={() => setWindowM(n)}>{n} m</button>
+          ))}
+        </div>
+
+        <div className="seg">
+          <span className="muted">Y:</span>
+          <button className={`chip ${!autoY?'active':''}`} onClick={() => setAutoY(false)}>0–8</button>
+          <button className={`chip ${autoY?'active':''}`} onClick={() => setAutoY(true)}>Auto</button>
+        </div>
+
+        <div className="seg">
+          <button className="chip" onClick={() => move(-100)}>−100 m</button>
+          <button className="chip" onClick={() => move(+100)}>+100 m</button>
+          <span className="muted">KM inicial:</span>
+          <b>{mToKmAbs(kmRef)}</b>
+        </div>
+
+        <div className="seg">
+          <button className="chip" onClick={exportCsv}>Exportar CSV</button>
+          <button className="chip" onClick={printPdf}>Salvar em PDF</button>
+        </div>
+      </div>
+
+      {loading && <div className="muted" style={{margin:"6px 0"}}>Carregando…</div>}
+      {error &&   <div className="danger" style={{margin:"6px 0"}}>{error}</div>}
+
+      <div className="sep"></div>
+
+      <div style={{display:"grid", gridTemplateColumns:"1fr 220px", gap:14}}>
+        <div style={{height:420, background:"#0c1320", border:"1px solid #1f2633", borderRadius:12, padding:"10px 14px"}}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={mergedData} margin={{ top: 8, right: 18, left: 0, bottom: 24 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--grid)" />
+              <XAxis
+                dataKey="kmLabel"
+                tick={{ fill:"#9fb0cc", fontSize:12 }}
+                interval="preserveStartEnd"
+                label={{ value:"Localização (km)", position:"insideBottom", dy:18, fill:"#9fb0cc" }}
+              />
+              <YAxis
+                domain={yDomain}
+                tick={{ fill:"#9fb0cc", fontSize:12 }}
+                label={{ value:"Curvatura (1/m)", angle:-90, position:"insideLeft", dx:-6, fill:"#9fb0cc" }}
+              />
+              <Tooltip content={<MultiTooltip/>} />
+              {/* Linhas verticais (marcos críticos) */}
+              {MARKERS_KM.map((km, i) => (
+                <ReferenceLine
+                  key={i}
+                  x={km.toFixed(3)}
+                  stroke="var(--danger)"
+                  strokeDasharray="4 4"
+                  label={{
+                    value: `${km.toFixed(3)} km`,
+                    position: "top",
+                    fill: "var(--danger)",
+                    fontSize: 11
+                  }}
+                />
+              ))}
+              {/* Séries */}
+              {seriesByCampaign.map((c, idx) => (
+                <Line
+                  key={c.label}
+                  type="monotone"
+                  dataKey={c.label}
+                  name={c.label}
+                  stroke={c.color}
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                  connectNulls
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="legend-box" style={{background:"#0c1320", border:"1px solid #1f2633", borderRadius:12, padding:"10px 12px"}}>
+          <div style={{fontWeight:700, marginBottom:8, color:"#aab7cf"}}>Campanhas</div>
+          <div style={{display:"flex", flexDirection:"column", gap:6}}>
+            {seriesByCampaign.map((c, i) => (
+              <div key={c.label} style={{display:"flex", alignItems:"center", gap:8}}>
+                <span style={{display:"inline-block", width:12, height:12, borderRadius:3, background:c.color}}></span>
+                <span>{c.label}</span>
+              </div>
+            ))}
+            {!seriesByCampaign.length && <div className="muted">Sem dados</div>}
+          </div>
+
+          <div className="spacer"></div>
+          <div className="sep"></div>
+          <div className="spacer"></div>
+
+          <div style={{fontSize:13, color:"#9fb0cc"}}>
+            <div><b>API:</b> {API_BASE}</div>
+            <div><b>Python:</b> {PROC_BASE}</div>
+            <div className="spacer"></div>
+            <div>Referência Y <b>0–8</b> por padrão (AUTO disponível).</div>
+            <div>Curvas <b>monotone</b> (suavização visual) e opcional <b>Suavizar (Python)</b>.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+createRoot(document.getElementById("app")).render(<App />);
